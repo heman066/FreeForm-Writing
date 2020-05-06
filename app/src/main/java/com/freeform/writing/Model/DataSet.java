@@ -1,4 +1,4 @@
-package com.freeform.writing;
+package com.freeform.writing.Model;
 
 public class DataSet {
     private String timeStamp;
