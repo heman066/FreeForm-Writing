@@ -3,7 +3,7 @@ apply plugin: 'com.chaquo.python'
 
 android {
     compileSdkVersion 29
-    buildToolsVersion "29.0.2"
+    buildToolsVersion "29.0.3"
     defaultConfig {
         applicationId "com.freeform.writing"
         sourceSets {
@@ -18,14 +18,15 @@ android {
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-
         ndk {
             abiFilters "armeabi-v7a", "x86"
         }
-
         python {
             buildPython "E:/program/Python38-32/python.exe"
-            buildPython "py -3.7"
+            pip{
+                install "matplotlib"
+                install "scipy"
+            }
         }
     }
     buildTypes {
@@ -44,8 +45,12 @@ dependencies {
     androidTestImplementation 'androidx.test.ext:junit:1.1.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.2.0'
 
-    implementation group: 'commons-io', name: 'commons-io', version: '20030203.000550'
+    implementation group: 'commons-io', name: 'commons-io', version: '2.4'
 
-    //MPAndroidChart for graph
+    //MPAndroidChart for graphView
     implementation 'com.github.Philjay:MPAndroidChart:v3.1.0'
+
+    //FilePickerDialog
+    implementation 'com.github.angads25:filepicker:1.1.1'
+
 }

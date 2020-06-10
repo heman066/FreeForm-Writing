@@ -1,7 +1,6 @@
 package com.freeform.writing.Functions;
 
 import android.os.Environment;
-import android.util.Log;
 
 import com.freeform.writing.Model.DataSet;
 import com.freeform.writing.Model.Segment;
@@ -16,20 +15,17 @@ import java.util.List;
 
 public class SegmentGeneration {
 
-
     private List<DataSet> accelerometerDataSet;
-    private List<DataSet> gyroscopeDataSet;
-    private List<Segment> segmentDataSet;
+    private List<Segment> groundTruthSegment;
     private List<DataSet> movingAverage;
     private List<DataSet> movingVariance1;
     private List<DataSet> movingVariance2;
     private List<String> timeStamp;
     private List<Segment> segments;
 
-    public SegmentGeneration(List<DataSet> accelerometerDataSet, List<DataSet> gyroscopeDataSet, List<Segment> segmentDataSet){
+    public SegmentGeneration(List<DataSet> accelerometerDataSet, List<Segment> groundTruthSegment){
         this.accelerometerDataSet=accelerometerDataSet;
-        this.gyroscopeDataSet=gyroscopeDataSet;
-        this.segmentDataSet=segmentDataSet;
+        this.groundTruthSegment=groundTruthSegment;
         movingAverage = new ArrayList<>();
         movingVariance1 = new ArrayList<>();
         movingVariance2 = new ArrayList<>();
@@ -37,32 +33,7 @@ public class SegmentGeneration {
         segments = new ArrayList<>();
     }
 
-    public void getSegment(){
-        getmovingAverage();
-        getmovingVariance(0);
-        getmovingVariance(1);
-        thresholdChecking();
-        generateSegment();
-
-        LowPassFilter lowPassFilter = new LowPassFilter(movingVariance2,segmentDataSet);
-        List<DataSet> updatedAccelerometer = lowPassFilter.applyLowPassFilter();
-        File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/.FFWList/updatedAccelerometer.csv");
-        try {
-            if(file.exists()) FileUtils.forceDelete(file);
-            FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
-                    "FreeForm-Writing/.FFWList/updatedAccelerometer.csv"),true);
-            for(DataSet dataSet : updatedAccelerometer){
-                String msg = dataSet.getTimeStamp()+","+dataSet.getxAxis()+","+dataSet.getyAxis()+","+dataSet.getzAxis();
-                fileWriter.write(msg + "\n");
-                fileWriter.flush();
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        Log.e("SegmentGeneration","Work Done");
-    }
-
-    private void getmovingAverage(){
+    public void getmovingAverage(){
         int length = accelerometerDataSet.size();
 
         for(int i=0;i<length;i++){
@@ -91,7 +62,7 @@ public class SegmentGeneration {
         }
     }
 
-    private void getmovingVariance(int check){
+    public void getmovingVariance(int check){
         int length;
         if (check==0)length = movingAverage.size();
         else length = movingVariance1.size();
@@ -170,31 +141,45 @@ public class SegmentGeneration {
     }
 
 
-    private void thresholdChecking() {
+    public void thresholdChecking() {
+        movingAverage.clear();
+        movingVariance1.clear();
         //threshold checking
         final double segment_threshold = 0.0000002;
-        for(int i=0;i<movingVariance2.size();i++){
-            int compareX = Double.compare(movingVariance2.get(i).getxAxis(),segment_threshold);
-            int compareY = Double.compare(movingVariance2.get(i).getyAxis(),segment_threshold);
-            int compareZ = Double.compare(movingVariance2.get(i).getzAxis(),segment_threshold);
-            if(compareX<0 && compareY<0 && compareZ<0){
+        int seg=0,segLen=groundTruthSegment.size(),i=0,len=movingVariance2.size();
+        while(i<len){
+            int j=i;
+            long startTime=groundTruthSegment.get(seg).getStartTime(),endTime=groundTruthSegment.get(seg).getEndTime();
+            while(startTime>Long.parseLong(movingVariance2.get(j).getTimeStamp())) j++;
+            while(startTime<=Long.parseLong(movingVariance2.get(j).getTimeStamp())
+                    && endTime>=Long.parseLong(movingVariance2.get(j).getTimeStamp())){
 
-                movingVariance2.get(i).setxAxis(0);
-                movingVariance2.get(i).setyAxis(0);
-                movingVariance2.get(i).setzAxis(0);
-            }else{
-                timeStamp.add(movingVariance2.get(i).getTimeStamp());
+                int compareX = Double.compare(movingVariance2.get(j).getxAxis(),segment_threshold);
+                int compareY = Double.compare(movingVariance2.get(j).getyAxis(),segment_threshold);
+                int compareZ = Double.compare(movingVariance2.get(j).getzAxis(),segment_threshold);
+                if(compareX<0 && compareY<0 && compareZ<0){
+
+                    movingVariance2.get(j).setxAxis(0);
+                    movingVariance2.get(j).setyAxis(0);
+                    movingVariance2.get(j).setzAxis(0);
+                }else{
+                    timeStamp.add(movingVariance2.get(j).getTimeStamp());
+                }
+                j++;
             }
+            i=j;
+            seg++;
+            if(seg==segLen) break;
         }
     }
-    private void generateSegment() {
+    public List<Segment> generateSegment() {
         try {
             File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/test/segmentGenerated.csv");
             if(file.exists()) FileUtils.forceDelete(file);
             FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
                     "FreeForm-Writing/test/segmentGenerated.csv"),true);
             long startTime,endTime,checkTime;
-            int i=0,len=timeStamp.size();
+            int i=0,len=timeStamp.size(),segG=0,seglen=groundTruthSegment.size();
             while(i<len){
                 startTime = Long.parseLong(timeStamp.get(i));
                 int j=i+1,count=0;
@@ -209,16 +194,23 @@ public class SegmentGeneration {
                 }
                 endTime=checkTime;
                 if(endTime-startTime>=1000){
-                    Segment segment = new Segment(startTime,endTime);
-                    segments.add(segment);
-                    String seg= segment.getStartTime() + "," + segment.getEndTime();
-                    fileWriter.write(seg + "\n");
-                    fileWriter.flush();
+                    //if(groundTruthSegment.get(segG).getEndTime()>endTime && groundTruthSegment.get(segG).getStartTime()<startTime){
+                        Segment segment = new Segment(startTime,endTime);
+                        segments.add(segment);
+                        String seg= segment.getStartTime() + "," + segment.getEndTime();
+                        fileWriter.write(seg + "\n");
+                        fileWriter.flush();
+                        //segG++;
+                        //if(segG==seglen) break;
+                    //}
                 }
                 i=j;
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
+        movingVariance2.clear();
+        timeStamp.clear();
+        return segments;
     }
 }

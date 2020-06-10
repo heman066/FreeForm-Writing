@@ -14,11 +14,13 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
 
+import com.chaquo.python.Python;
+import com.chaquo.python.android.AndroidPlatform;
+import com.freeform.writing.Functions.Calibration;
 import com.freeform.writing.Functions.LowPassFilter;
 import com.freeform.writing.Functions.SegmentGeneration;
 import com.freeform.writing.Model.DataSet;
 import com.freeform.writing.Model.Segment;
-import com.github.mikephil.charting.data.Entry;
 
 import org.apache.commons.io.FileUtils;
 
@@ -37,14 +39,20 @@ public class MainActivity extends AppCompatActivity {
     private List<DataSet> incomingAccelerometerDataset;
     private List<DataSet> incomingGyroscopeDataset;
     private List<Segment> incomingSegmentDataset;
+    private List<DataSet> updatedAccelerometer;
+    private List<DataSet> updatedGyroscope;
+    private List<Segment> segments;
 
     public static final int MULTIPLE_PERMISSIONS = 10;
     private final String[] permissions = new String[]{
             Manifest.permission.WRITE_EXTERNAL_STORAGE,
             Manifest.permission.READ_EXTERNAL_STORAGE};
 
-    private boolean isAnalyzed = false;
+    private SegmentGeneration segmentGeneration;
+
+    private boolean isAnalyzed = false,isRead=false;
     private Button graph;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,29 +62,53 @@ public class MainActivity extends AppCompatActivity {
             ActivityCompat.requestPermissions(this,permissions,MULTIPLE_PERMISSIONS);
         }
         AddDirectory.addDirectory();
+        init();
+        onClickListners();
+    }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if(!isRead){
+            isRead=true;
+            readIncomingDataSets();
+        }
+    }
+
+    private void init() {
         isAnalyzed = false;
+        isRead=false;
         incomingAccelerometerDataset = new ArrayList<>();
         incomingGyroscopeDataset = new ArrayList<>();
         incomingSegmentDataset = new ArrayList<>();
-        graph = findViewById(R.id.btn_graph);
+        updatedAccelerometer = new ArrayList<>();
+        segments = new ArrayList<>();
+        graph = findViewById(R.id.btn_analyze);
+        if(!Python.isStarted()){
+            Python.start(new AndroidPlatform(this));
+        }
+    }
+
+    private void onClickListners() {
         graph.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if(!isAnalyzed){
                     isAnalyzed=true;
-                    readIncomingDataSets();
+                    segmentGeneration.getmovingAverage();
+                    segmentGeneration.getmovingVariance(0);
+                    segmentGeneration.getmovingVariance(1);
+                    segmentGeneration.thresholdChecking();
+                    segments = segmentGeneration.generateSegment();
 
-                    LowPassFilter lowPassFilter = new LowPassFilter(incomingGyroscopeDataset,incomingSegmentDataset);
-                    List<DataSet> updatedGyroscope = lowPassFilter.applyLowPassFilter();
-                    File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/.FFWList/updatedGyro.csv");
+                    LowPassFilter lowPassFilterAcc = new LowPassFilter(incomingAccelerometerDataset,incomingSegmentDataset);
+                    updatedAccelerometer = lowPassFilterAcc.applyLowPassFilter();
+                    File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/.FFWList/updatedAccelerometer.csv");
                     try {
                         if(file.exists()) FileUtils.forceDelete(file);
                         FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
-                                "FreeForm-Writing/.FFWList/updatedGyro.csv"),true);
-                        for(DataSet dataSet : updatedGyroscope){
-                            //String msg = dataSet.getxAxis() + "";
-                            //fileWriter.write(msg + " ");
+                                "FreeForm-Writing/.FFWList/updatedAccelerometer.csv"),true);
+                        for(DataSet dataSet : updatedAccelerometer){
                             String msg = dataSet.getTimeStamp()+","+dataSet.getxAxis()+","+dataSet.getyAxis()+","+dataSet.getzAxis();
                             fileWriter.write(msg + "\n");
                             fileWriter.flush();
@@ -84,6 +116,30 @@ public class MainActivity extends AppCompatActivity {
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
+
+                    LowPassFilter lowPassFilterGyro = new LowPassFilter(incomingGyroscopeDataset,incomingSegmentDataset);
+                    updatedGyroscope = lowPassFilterGyro.applyLowPassFilter();
+                    File file1 = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/.FFWList/updatedGyro.csv");
+                    try {
+                        if(file1.exists()) FileUtils.forceDelete(file);
+                        FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
+                                "FreeForm-Writing/.FFWList/updatedGyro.csv"),true);
+                        for(DataSet dataSet : updatedGyroscope){
+                            String msg = dataSet.getTimeStamp()+","+dataSet.getxAxis()+","+dataSet.getyAxis()+","+dataSet.getzAxis();
+                            fileWriter.write(msg + "\n");
+                            fileWriter.flush();
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    incomingAccelerometerDataset.clear();
+                    incomingGyroscopeDataset.clear();
+
+                    Calibration calibration = new Calibration(updatedAccelerometer,updatedGyroscope,segments);
+                    calibration.analyze();
+
+                    graph.setText("Graph");
+                    Toast.makeText(MainActivity.this,"Analysis Successful",Toast.LENGTH_LONG).show();
                 }else{
                     Intent intent = new Intent(MainActivity.this,FilesAvailableAcitivity.class);
                     startActivity(intent);
@@ -104,6 +160,10 @@ public class MainActivity extends AppCompatActivity {
         incomingSegmentDataset.clear();
 
         try {
+            File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/.FFWList/incomingAccelerometerDataset.csv");
+            if(file.exists()) FileUtils.forceDelete(file);
+            FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
+                    "FreeForm-Writing/.FFWList/incomingAccelerometerDataset.csv"),true);
             while ((inputLine1 = bufferedReader1.readLine())!=null){
                 //Split the data by ','
                 String[] tokens = inputLine1.split(",");
@@ -123,14 +183,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 else dataSet.setzAxis(0);
                 incomingAccelerometerDataset.add(dataSet);
-            }
-            File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/.FFWList/incomingAccelerometerDataset.csv");
-            if(file.exists()) FileUtils.forceDelete(file);
-            FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
-                    "FreeForm-Writing/.FFWList/incomingAccelerometerDataset.csv"),true);
-            for(DataSet dataSet : incomingAccelerometerDataset){
-                //String msg = dataSet.getxAxis() + "";
-                //fileWriter.write(msg + " ");
+
                 String msg = dataSet.getTimeStamp()+","+dataSet.getxAxis()+","+dataSet.getyAxis()+","+dataSet.getzAxis();
                 fileWriter.write(msg + "\n");
                 fileWriter.flush();
@@ -143,17 +196,13 @@ public class MainActivity extends AppCompatActivity {
         BufferedReader bufferedReader2 = new BufferedReader(new InputStreamReader(inputStream2, Charset.forName("UTF-8")));
         String inputLine2="";
         try {
-            ArrayList<Entry> entriesX = new ArrayList<>();
-            ArrayList<Entry> entriesY = new ArrayList<>();
-            ArrayList<Entry> entriesZ = new ArrayList<>();
-            String initialTime="";
+            File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/.FFWList/incomingGyroscopeDataset.csv");
+            if(file.exists()) FileUtils.forceDelete(file);
+            FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
+                    "FreeForm-Writing/.FFWList/incomingGyroscopeDataset.csv"),true);
             while ((inputLine2 = bufferedReader2.readLine())!=null){
                 //Split the data by ','
                 String[] tokens = inputLine2.split(",");
-                if(initialTime=="")initialTime = tokens[0];
-                Long time = Long.parseLong(tokens[0])-Long.parseLong(initialTime);
-                double d= ((double)time)/1000.0;
-                float f = (float)d;
                 //Read the data
                 DataSet dataSet = new DataSet("0",0,0,0);
                 dataSet.setTimeStamp(tokens[0]);
@@ -170,14 +219,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 else dataSet.setzAxis(0);
                 incomingGyroscopeDataset.add(dataSet);
-            }
-            File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/.FFWList/incomingGyroscopeDataset.csv");
-            if(file.exists()) FileUtils.forceDelete(file);
-            FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
-                    "FreeForm-Writing/.FFWList/incomingGyroscopeDataset.csv"),true);
-            for(DataSet dataSet : incomingAccelerometerDataset){
-                //String msg = dataSet.getxAxis() + "";
-                //fileWriter.write(msg + " ");
+
                 String msg = dataSet.getTimeStamp()+","+dataSet.getxAxis()+","+dataSet.getyAxis()+","+dataSet.getzAxis();
                 fileWriter.write(msg + "\n");
                 fileWriter.flush();
@@ -207,10 +249,8 @@ public class MainActivity extends AppCompatActivity {
             Log.wtf("MainActivity","Failed to read GroundTruth line:- " + inputLine3,e);
             e.printStackTrace();
         }
-        SegmentGeneration segmentGeneration = new SegmentGeneration(incomingAccelerometerDataset,incomingGyroscopeDataset,incomingSegmentDataset);
-        segmentGeneration.getSegment();
-        graph.setText("Graph");
-        Toast.makeText(MainActivity.this,"Analysis Successful",Toast.LENGTH_LONG).show();
+
+        segmentGeneration = new SegmentGeneration(incomingAccelerometerDataset,incomingSegmentDataset);
     }
 
     public boolean hasPermissions(Context context, String... permissions){

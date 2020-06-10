@@ -1,6 +1,8 @@
 package com.freeform.writing.Model;
 
-public class Segment {
+import java.io.Serializable;
+
+public class Segment implements Serializable {
     private long startTime, endTime;
 
     public Segment(long startTime, long endTime) {

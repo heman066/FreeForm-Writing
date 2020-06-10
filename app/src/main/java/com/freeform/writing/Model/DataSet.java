@@ -1,6 +1,8 @@
 package com.freeform.writing.Model;
 
-public class DataSet {
+import java.io.Serializable;
+
+public class DataSet implements Serializable {
     private String timeStamp;
     private double xAxis, yAxis, zAxis;
 
