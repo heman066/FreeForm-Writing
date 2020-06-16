@@ -2,6 +2,7 @@ package com.freeform.writing.Functions;
 
 import android.os.Environment;
 
+import com.freeform.writing.Logger;
 import com.freeform.writing.Model.DataSet;
 import com.freeform.writing.Model.Segment;
 
@@ -22,15 +23,24 @@ public class SegmentGeneration {
     private List<DataSet> movingVariance2;
     private List<String> timeStamp;
     private List<Segment> segments;
+    private Logger logger;
+    private String segTag;
+    private long loadStart, loadEnd;
+    private String inputDate;
 
-    public SegmentGeneration(List<DataSet> accelerometerDataSet, List<Segment> groundTruthSegment){
+    public SegmentGeneration(List<DataSet> accelerometerDataSet, List<Segment> groundTruthSegment, Logger logger, String inputDate){
         this.accelerometerDataSet=accelerometerDataSet;
         this.groundTruthSegment=groundTruthSegment;
+        this.logger = logger;
+        this.inputDate = inputDate;
         movingAverage = new ArrayList<>();
         movingVariance1 = new ArrayList<>();
         movingVariance2 = new ArrayList<>();
         timeStamp = new ArrayList<>();
         segments = new ArrayList<>();
+        segTag = "Segment Generation";
+        loadStart = System.currentTimeMillis();
+        logger.write(segTag,"Segment Generation module has started");
     }
 
     public void getmovingAverage(){
@@ -174,10 +184,10 @@ public class SegmentGeneration {
     }
     public List<Segment> generateSegment() {
         try {
-            File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/test/segmentGenerated.csv");
+            File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/test/segments" + inputDate +".csv");
             if(file.exists()) FileUtils.forceDelete(file);
             FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
-                    "FreeForm-Writing/test/segmentGenerated.csv"),true);
+                    "FreeForm-Writing/test/segments" + inputDate + ".csv"),true);
             long startTime,endTime,checkTime;
             int i=0,len=timeStamp.size(),segG=0,seglen=groundTruthSegment.size();
             while(i<len){
@@ -211,6 +221,10 @@ public class SegmentGeneration {
         }
         movingVariance2.clear();
         timeStamp.clear();
+
+        loadEnd = System.currentTimeMillis();
+        double time =((double)(loadEnd - loadStart))/1000.0;
+        logger.write(segTag,"Segments are generated, elapsed time: " + time + " seconds");
         return segments;
     }
 }

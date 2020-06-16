@@ -53,4 +53,7 @@ dependencies {
     //FilePickerDialog
     implementation 'com.github.angads25:filepicker:1.1.1'
 
+    //I-test for pdf
+    implementation 'com.itextpdf:itextg:5.5.10'
+
 }

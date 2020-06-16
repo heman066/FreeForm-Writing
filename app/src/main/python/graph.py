@@ -1,9 +1,10 @@
 from android.os import Environment
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
-def graph(x,y,z,length,name):
+def graph(x,y,z,length,name,direc):
     d = str(Environment.getExternalStorageDirectory())
     n = str(name)
+    dir = str(direc)
     x1=[]
     y1=[]
     z1=[]
@@ -22,7 +23,7 @@ def graph(x,y,z,length,name):
     ax.set_yticks([])
     ax.set_zticks([])
     plt.axis('off')
-    plt.savefig(d + '/FreeForm-Writing/Graphs/' + n, transparent=True) #filename of the saved file
+    plt.savefig(d + '/FreeForm-Writing/'+ dir + '/' + n, transparent=True) #filename of the saved file
 
 
 
