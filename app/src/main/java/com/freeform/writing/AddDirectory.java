@@ -11,7 +11,6 @@ public class AddDirectory {
     private static File graphs=Environment.getExternalStoragePublicDirectory("FreeForm-Writing/.FFWList");
     private static File indata=Environment.getExternalStoragePublicDirectory("FreeForm-Writing/Input Data");
     private static File ouput=Environment.getExternalStoragePublicDirectory("FreeForm-Writing/Output");
-    private static File working=Environment.getExternalStoragePublicDirectory("FreeForm-Writing/.Working");
     private static File log=Environment.getExternalStoragePublicDirectory("FreeForm-Writing/AppLog");
 
     public static void addDirectory(){
@@ -20,7 +19,6 @@ public class AddDirectory {
         if(!test.exists()) test.mkdir();
         if(!graphs.exists()) graphs.mkdir();
         if(!ouput.exists()) ouput.mkdir();
-        if(!working.exists()) working.mkdir();
         if(!log.exists()) log.mkdir();
     }
 }

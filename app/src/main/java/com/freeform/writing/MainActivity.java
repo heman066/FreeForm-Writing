@@ -16,6 +16,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
+import android.os.Looper;
+import android.os.Process;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -28,9 +30,11 @@ import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
 import com.freeform.writing.Functions.Calibration;
 import com.freeform.writing.Functions.LowPassFilter;
+import com.freeform.writing.Functions.PenUpDownClustering;
 import com.freeform.writing.Functions.SegmentGeneration;
 import com.freeform.writing.Model.DataSet;
 import com.freeform.writing.Model.Segment;
+import com.freeform.writing.Model.SegmentWithPenUpDown;
 import com.github.angads25.filepicker.controller.DialogSelectionListener;
 import com.github.angads25.filepicker.model.DialogConfigs;
 import com.github.angads25.filepicker.model.DialogProperties;
@@ -65,15 +69,15 @@ public class MainActivity extends AppCompatActivity {
 
     private List<DataSet> incomingAccelerometerDataset;
     private List<DataSet> incomingGyroscopeDataset;
-    private List<Segment> incomingSegmentDataset;
     private List<DataSet> updatedAccelerometer;
     private List<DataSet> updatedGyroscope;
-    private List<Segment> segments;
+    private List<SegmentWithPenUpDown> segments;
 
     private RelativeLayout rel,rel4;
-    private Button btnAnalyze,btnAccSelect,btnGyroSelect,btnGndSelect,btnReset,btnGetAllData;
-    private TextView txtAcc, txtGyro, txtGnd;
-    private ProgressBar progAcc, progGyro, progGnd;
+    private Button btnAccSelect, btnGyroSelect, btnGetAllData, btnReset;
+    private Button btnGenarateSeg, btnLowPass , btnCalibrate, btnPdf;
+    private TextView txtAcc, txtGyro;
+    private ProgressBar progAcc, progGyro;
 
     private Handler mHandler;
 
@@ -87,6 +91,7 @@ public class MainActivity extends AppCompatActivity {
     private DialogProperties properties;
 
     private String inputDate;
+    private String rawGyroPath, rawAccPath;
     private String mainActivity = "Main Activity";
     private Logger logger;
     private long appStartTime, appEndTime;
@@ -112,15 +117,16 @@ public class MainActivity extends AppCompatActivity {
     private void init() {
         incomingAccelerometerDataset = new ArrayList<>();
         incomingGyroscopeDataset = new ArrayList<>();
-        incomingSegmentDataset = new ArrayList<>();
         updatedAccelerometer = new ArrayList<>();
         segments = new ArrayList<>();
 
-        btnAnalyze = findViewById(R.id.btn_analyze);
+        btnCalibrate = findViewById(R.id.btn_calibrate);
+        btnGenarateSeg = findViewById(R.id.btn_segments);
+        btnLowPass = findViewById(R.id.btn_lowPass);
+        btnPdf = findViewById(R.id.btn_pdf);
         btnReset = findViewById(R.id.btn_reset);
         btnAccSelect = findViewById(R.id.btnAccSelect);
         btnGyroSelect = findViewById(R.id.btnGyroSelect);
-        btnGndSelect = findViewById(R.id.btnGndSelect);
         btnGetAllData = findViewById(R.id.btn_getAllData);
 
         rel = findViewById(R.id.rel);
@@ -128,13 +134,11 @@ public class MainActivity extends AppCompatActivity {
 
         txtAcc = findViewById(R.id.txtAcc);
         txtGyro = findViewById(R.id.txtGyro);
-        txtGnd = findViewById(R.id.txtGnd);
 
         progAcc = findViewById(R.id.progAcc);
         progGyro = findViewById(R.id.progGyro);
-        progGnd = findViewById(R.id.progGnd);
 
-        mHandler = new Handler();
+        mHandler = new Handler(Looper.getMainLooper());
 
         properties = new DialogProperties();
         properties.selection_mode = DialogConfigs.SINGLE_MODE;
@@ -164,6 +168,7 @@ public class MainActivity extends AppCompatActivity {
                         final File file = new File(files[0]);
                         inputDate = getDateFromName(file.getName());
                         txtAcc.setText(file.getName());
+                        rawAccPath = file.getAbsolutePath();
 
                         incomingAccelerometerDataset.clear();
                         new Thread(new Runnable() {
@@ -214,6 +219,7 @@ public class MainActivity extends AppCompatActivity {
                                 long loadEnd = System.currentTimeMillis();
                                 double time =((double)(loadEnd - loadStart))/1000.0;
                                 logger.write(mainActivity,"Loading time of the accelerometer file " + file.getName() + " is: " + time + " seconds");
+                                btnAccSelect.setVisibility(View.GONE);
                             }
                         }).start();
                     }
@@ -236,6 +242,7 @@ public class MainActivity extends AppCompatActivity {
                         final long loadStart = System.currentTimeMillis();
                         final File file = new File(files[0]);
                         txtGyro.setText(file.getName());
+                        rawGyroPath = file.getAbsolutePath();
 
                         incomingGyroscopeDataset.clear();
                         new Thread(new Runnable() {
@@ -287,93 +294,13 @@ public class MainActivity extends AppCompatActivity {
                                 long loadEnd = System.currentTimeMillis();
                                 double time =((double)(loadEnd - loadStart))/1000.0;
                                 logger.write(mainActivity,"Loading time of the gyroscope file " + file.getName() + " is: " + time + " seconds");
+                                btnGyroSelect.setVisibility(View.GONE);
                             }
                         }).start();
                     }
                 });
 
                 dialog.show();
-            }
-        });
-
-        btnGndSelect.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                final FilePickerDialog dialog = new FilePickerDialog(MainActivity.this,properties);
-                dialog.setTitle("Select Ground truth File");
-                dialog.setDialogSelectionListener(new DialogSelectionListener() {
-                    @Override
-                    public void onSelectedFilePaths(final String[] files) {
-                        logger.write(mainActivity,"Ground Truth File is selected");
-                        final long loadStart = System.currentTimeMillis();
-                        final File file = new File(files[0]);
-                        txtGnd.setText(file.getName());
-
-                        incomingSegmentDataset.clear();
-                        new Thread(new Runnable() {
-                            @RequiresApi(api = Build.VERSION_CODES.O)
-                            @Override
-                            public void run() {
-                                try {
-                                    InputStream inputStream ;
-                                    inputStream = new FileInputStream(file);
-                                    BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(inputStream, Charset.forName("UTF-8")));
-                                    String inputLine="";
-                                    Path path = Paths.get(files[0]);
-                                    long totalLineCount= Files.lines(path).count(),count=0;
-                                    while ((inputLine = bufferedReader.readLine())!=null){
-                                        //Split the data by ','
-                                        String[] tokens = inputLine.split(",");
-                                        //Read the data
-                                        Segment segment = new Segment(0,0);
-                                        segment.setStartTime(Long.parseLong(tokens[0]));
-                                        if(tokens.length>=2 && tokens[1].length()>0){
-                                            String endTime = "";
-                                            for(int i=1;i<tokens[1].length();i++) endTime+=tokens[1].charAt(i);
-                                            segment.setEndTime(Long.parseLong(endTime));
-                                        }
-                                        else segment.setEndTime(0);
-                                        incomingSegmentDataset.add(segment);
-
-                                        count++;
-                                        int percent= (int) ((count/totalLineCount)*100);
-                                        progGnd.setProgress(percent,true);
-                                    }
-                                } catch (IOException e) {
-                                    e.printStackTrace();
-                                }
-                                long loadEnd = System.currentTimeMillis();
-                                double time =((double)(loadEnd - loadStart))/1000.0;
-                                logger.write(mainActivity,"Loading time of the ground truth file " + file.getName() + " is: " + time + " seconds");
-                            }
-                        }).start();
-                    }
-                });
-                dialog.show();
-            }
-        });
-
-        btnReset.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                incomingAccelerometerDataset.clear();
-                incomingGyroscopeDataset.clear();
-                incomingSegmentDataset.clear();
-                if(updatedAccelerometer!=null) updatedAccelerometer.clear();
-                if(updatedGyroscope!=null) updatedGyroscope.clear();
-                segments.clear();
-
-                btnAnalyze.setVisibility(View.VISIBLE);
-                btnGetAllData.setVisibility(View.VISIBLE);
-
-                txtAcc.setText("Select Accelerometer Data");
-                txtGyro.setText("Select Gyroscope Data");
-                txtGnd.setText("Select GroundTruth Data");
-
-                progAcc.setProgress(0);
-                progGyro.setProgress(0);
-                progGnd.setProgress(0);
-                logger.write(mainActivity,"Reset, you can add new files");
             }
         });
 
@@ -384,57 +311,229 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        btnAnalyze.setOnClickListener(new View.OnClickListener() {
+        final boolean[] segGenerated = {false}, lowpassApplied = {false}, isCalibrated = {false};
+        final boolean[] segCheck = {false};
+
+        btnGenarateSeg.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if(incomingSegmentDataset.size()==0 || incomingGyroscopeDataset.size()==0 || incomingAccelerometerDataset.size()==0){
-                    Toast.makeText(MainActivity.this,"Please Select all files",Toast.LENGTH_LONG).show();
-                }else{
-                    logger.write(mainActivity,"Analysis has been started");
-                    final long loadStart = System.currentTimeMillis();
-                    segmentGeneration = new SegmentGeneration(incomingAccelerometerDataset,incomingSegmentDataset,logger, inputDate);
-                    segmentGeneration.getmovingAverage();
-                    segmentGeneration.getmovingVariance(0);
-                    segmentGeneration.getmovingVariance(1);
-                    segmentGeneration.thresholdChecking();
-                    segments = segmentGeneration.generateSegment();
+                if (!segCheck[0]){
+                    if(incomingAccelerometerDataset.size() == 0 || incomingGyroscopeDataset.size() == 0)
+                        Toast.makeText(MainActivity.this,"Please Select all Files",Toast.LENGTH_LONG).show();
+                    else if( progAcc.getProgress() != 100 || progGyro.getProgress() != 100)
+                        Toast.makeText(MainActivity.this,"Please Wait for Files to be Loaded",Toast.LENGTH_LONG).show();
+                    else{
+                        final long loadStart = System.currentTimeMillis();
+                        Thread t1 = new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                segCheck[0] = true;
+                                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
+                                segmentGeneration = new SegmentGeneration(incomingAccelerometerDataset,logger, inputDate);
+                                segmentGeneration.run();
+                                final List<Segment> buffSegment = segmentGeneration.generateSegment();
+                                logger.write(mainActivity,"PenUpDownClustering module started");
+                                Thread thread = new Thread(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        PenUpDownClustering penUpDownClustering = new PenUpDownClustering(incomingGyroscopeDataset,buffSegment,inputDate);
+                                        segments = penUpDownClustering.run();
+                                    }
+                                });
+                                thread.start();
+                                try {
+                                    thread.join();
+                                } catch (InterruptedException e) {
+                                    e.printStackTrace();
+                                }
+                                mHandler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        btnGetAllData.setVisibility(View.GONE);
+                                        btnGenarateSeg.setVisibility(View.GONE);
+                                        Toast.makeText(MainActivity.this,"Segment Generation Successful",Toast.LENGTH_LONG).show();
+                                    }
+                                });
+                                segGenerated[0] = true;
+                                long loadEnd = System.currentTimeMillis();
+                                double time =((double)(loadEnd - loadStart))/1000.0;
+                                logger.write(mainActivity,"Segments are generated, elapsed time: " + time + " seconds");
+                            }
+                        });
+                        t1.start();
+                    }
+                } else
+                    Toast.makeText(MainActivity.this,"Process is ongoing please wait",Toast.LENGTH_LONG).show();
+            }
+        });
 
-                    long s1 =System.currentTimeMillis();
-                    LowPassFilter lowPassFilterAcc = new LowPassFilter(incomingAccelerometerDataset,incomingSegmentDataset);
-                    updatedAccelerometer = lowPassFilterAcc.applyLowPassFilter();
-                    long e1 = System.currentTimeMillis();
-                    double t1 =((double)(e1 - s1))/1000.0;
-                    logger.write(mainActivity,"LowPass applied on raw accelerometer data, elapsed time: " + t1 + " seconds");
+        final boolean[] lowCheck = {false,false};
+        btnLowPass.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if(!lowCheck[0] && !lowCheck[1]){
+                    if(!segGenerated[0])
+                        Toast.makeText(MainActivity.this,"Please Generate Segment First",Toast.LENGTH_LONG).show();
+                    else{
+                        final long loadStart = System.currentTimeMillis();
+                        final boolean[] com1 = {false};
+                        final boolean[] com2 = {false};
+                        Thread t3 = new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                lowCheck[0] = true;
+                                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
+                                String saveDir = String.valueOf(Environment.getExternalStoragePublicDirectory("FreeForm-Writing/." + inputDate + "/lowAcc.csv"));
+                                logger.write(mainActivity,"LowPass started for raw accelerometer");
+                                LowPassFilter lowPassFilterAcc = new LowPassFilter(incomingAccelerometerDataset,segments,logger,inputDate,rawAccPath,saveDir);
+                                updatedAccelerometer = lowPassFilterAcc.applyLowPassFilter();
+                                com1[0] = true;
+                                if(com2[0]){
+                                    mHandler.post(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            btnLowPass.setVisibility(View.GONE);
+                                            Toast.makeText(MainActivity.this,"LowPass Filter applied",Toast.LENGTH_LONG).show();
+                                        }
+                                    });
 
-                    long s2 = System.currentTimeMillis();
-                    LowPassFilter lowPassFilterGyro = new LowPassFilter(incomingGyroscopeDataset,incomingSegmentDataset);
-                    updatedGyroscope = lowPassFilterGyro.applyLowPassFilter();
-                    long e2 = System.currentTimeMillis();
-                    double t2 =((double)(e2 - s2))/1000.0;
-                    logger.write(mainActivity,"LowPass applied on raw gyroscope data, elapsed time: " + t2 + " seconds");
+                                    lowpassApplied[0] = true;
+                                    long loadEnd = System.currentTimeMillis();
+                                    double time =((double)(loadEnd - loadStart))/1000.0;
+                                    logger.write(mainActivity,"LowPass Filter applied, elapsed time: " + time + " seconds");
 
-                    incomingAccelerometerDataset.clear();
-                    incomingGyroscopeDataset.clear();
+                                }
+                            }
+                        });
+                        t3.start();
 
-                    Calibration calibration = new Calibration(updatedAccelerometer,updatedGyroscope,segments,inputDate,logger);
-                    calibration.analyze();
+                        Thread t4 = new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                lowCheck[1] = true;
+                                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
+                                String saveDir = String.valueOf(Environment.getExternalStoragePublicDirectory("FreeForm-Writing/." + inputDate + "/lowGyro.csv"));
+                                logger.write(mainActivity,"LowPass started for raw gyroscope");
+                                LowPassFilter lowPassFilterGyro = new LowPassFilter(incomingGyroscopeDataset,segments,logger,inputDate,rawGyroPath,saveDir);
+                                updatedGyroscope = lowPassFilterGyro.applyLowPassFilter();
+                                com2[0] = true;
+                                if(com1[0]){
+                                    mHandler.post(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            btnLowPass.setVisibility(View.GONE);
+                                            Toast.makeText(MainActivity.this,"LowPass Filter applied",Toast.LENGTH_LONG).show();
+                                        }
+                                    });
 
-                    new Thread(new Runnable() {
-                        @Override
-                        public void run() {
-                            getPdfFromImage();
-                        }
-                    }).start();
+                                    lowpassApplied[0] = true;
+                                    long loadEnd = System.currentTimeMillis();
+                                    double time =((double)(loadEnd - loadStart))/1000.0;
+                                    logger.write(mainActivity,"LowPass Filter applied, elapsed time: " + time + " seconds");
+                                }
+                            }
+                        });
+                        t4.start();
+                    }
+                } else
+                    Toast.makeText(MainActivity.this,"Process is ongoing please wait",Toast.LENGTH_LONG).show();
+            }
+        });
 
-                    btnAnalyze.setVisibility(View.GONE);
-                    btnGetAllData.setVisibility(View.GONE);
+        final boolean[] calCheck = {false};
+        btnCalibrate.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if(!calCheck[0]){
+                    if(!lowpassApplied[0])
+                        Toast.makeText(MainActivity.this,"Please apply LowPass Filter first",Toast.LENGTH_LONG).show();
+                    else{
+                        final long loadStart = System.currentTimeMillis();
+                        Thread thread = new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                calCheck[0] = true;
+                                incomingAccelerometerDataset.clear();
+                                incomingGyroscopeDataset.clear();
 
-                    long loadEnd = System.currentTimeMillis();
-                    double time =((double)(loadEnd - loadStart))/1000.0;
-                    logger.write(mainActivity,"Analysis Successful and time elapsed is: " + time + " seconds");
+                                Calibration calibration = new Calibration(updatedAccelerometer,updatedGyroscope,segments,inputDate,logger);
+                                calibration.analyze();
 
-                    Toast.makeText(MainActivity.this,"Analysis Successful",Toast.LENGTH_LONG).show();
-                }
+                                mHandler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        btnCalibrate.setVisibility(View.GONE);
+                                        Toast.makeText(MainActivity.this,"Calibration Successful",Toast.LENGTH_LONG).show();
+                                    }
+                                });
+                                isCalibrated[0] = true;
+                                long loadEnd = System.currentTimeMillis();
+                                double time =((double)(loadEnd - loadStart))/1000.0;
+                                logger.write(mainActivity,"Calibration successful, elapsed time: " + time + " seconds");
+                            }
+                        });
+                        thread.start();
+                    }
+                } else
+                    Toast.makeText(MainActivity.this,"Process is ongoing please wait",Toast.LENGTH_LONG).show();
+            }
+        });
+
+        final boolean[] pdfCheck = {false};
+        btnPdf.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if(!pdfCheck[0]){
+                    if(!isCalibrated[0])
+                        Toast.makeText(MainActivity.this,"Please Calibrate first",Toast.LENGTH_LONG).show();
+                    else{
+                        new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                pdfCheck[0] = true;
+                                getPdfFromImage();
+                                /*File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/." + inputDate);
+                                try {
+                                    FileUtils.forceDelete(file);
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }*/
+                                mHandler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        Toast.makeText(MainActivity.this,"PDF generated",Toast.LENGTH_LONG).show();
+                                    }
+                                });
+                            }
+                        }).start();
+                    }
+                } else
+                    Toast.makeText(MainActivity.this,"Process is ongoing please wait",Toast.LENGTH_LONG).show();
+            }
+        });
+
+        btnReset.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                incomingAccelerometerDataset.clear();
+                incomingGyroscopeDataset.clear();
+                if(updatedAccelerometer!=null) updatedAccelerometer.clear();
+                if(updatedGyroscope!=null) updatedGyroscope.clear();
+                segments.clear();
+
+                btnGenarateSeg.setVisibility(View.VISIBLE);
+                btnGetAllData.setVisibility(View.VISIBLE);
+                btnLowPass.setVisibility(View.VISIBLE);
+                btnCalibrate.setVisibility(View.VISIBLE);
+                btnAccSelect.setVisibility(View.VISIBLE);
+                btnGyroSelect.setVisibility(View.VISIBLE);
+
+                txtAcc.setText("Select Accelerometer Data");
+                txtGyro.setText("Select Gyroscope Data");
+
+                progAcc.setProgress(0);
+                progGyro.setProgress(0);
+                logger.write(mainActivity,"Reset, you can add new files");
             }
         });
     }
@@ -447,18 +546,20 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         for(final File file:listFile){
-            if(file.getName().contains("ACC"))
+            if(file.getName().contains("ACC")){
                 logger.write(mainActivity,"Accelerometer File is selected");
-            else if(file.getName().contains("GYRO"))
+                rawAccPath = file.getAbsolutePath();
+            }
+            else if(file.getName().contains("GYRO")){
+                rawGyroPath = file.getAbsolutePath();
                 logger.write(mainActivity,"Gyroscope File is selected");
-            else
-                logger.write(mainActivity,"Ground Truth File is selected");
-            final long loadStart = System.currentTimeMillis();
+            }
             new Thread(new Runnable() {
                 @RequiresApi(api = Build.VERSION_CODES.O)
                 @Override
                 public void run() {
                     try {
+                        final long loadStart = System.currentTimeMillis();
                         InputStream inputStream ;
                         inputStream = new FileInputStream(file);
                         BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(inputStream, Charset.forName("UTF-8")));
@@ -475,71 +576,49 @@ public class MainActivity extends AppCompatActivity {
                         mHandler.post(new Runnable() {
                             @Override
                             public void run() {
-                                if(file.getName().contains("ACC")) txtAcc.setText(file.getName());
-                                else if(file.getName().contains("GYRO")) txtGyro.setText(file.getName());
-                                else txtGnd.setText(file.getName());
+                                if(file.getName().contains("ACC"))
+                                    txtAcc.setText(file.getName());
+                                else if(file.getName().contains("GYRO"))
+                                    txtGyro.setText(file.getName());
                             }
                         });
 
-                        if(file.getName().contains("Ground")){
-                            incomingSegmentDataset.clear();
-                            while ((inputLine = bufferedReader.readLine())!=null){
-                                //Split the data by ','
-                                String[] tokens = inputLine.split(",");
-                                //Read the data
-                                Segment segment = new Segment(0,0);
-                                segment.setStartTime(Long.parseLong(tokens[0]));
-                                if(tokens.length>=2 && tokens[1].length()>0){
-                                    String endTime = "";
-                                    for(int i=1;i<tokens[1].length();i++) endTime+=tokens[1].charAt(i);
-                                    segment.setEndTime(Long.parseLong(endTime));
-                                }
-                                else segment.setEndTime(0);
-                                incomingSegmentDataset.add(segment);
-                                String msg = segment.getStartTime()+","+segment.getEndTime();
-                                fileWriter.write(msg + "\n");
-                                fileWriter.flush();
-
-                                count++;
-                                int percent= (int) ((count/totalLineCount)*100);
-                                progGnd.setProgress(percent,true);
+                        if(file.getName().contains("ACC"))
+                            incomingAccelerometerDataset.clear();
+                        else
+                            incomingGyroscopeDataset.clear();
+                        while ((inputLine = bufferedReader.readLine())!=null){
+                            //Split the data by ','
+                            String[] tokens = inputLine.split(",");
+                            //Read the data
+                            DataSet dataSet = new DataSet("0",0,0,0);
+                            dataSet.setTimeStamp(tokens[0]);
+                            if(tokens.length>=2 && tokens[1].length()>0){
+                                dataSet.setxAxis(Double.parseDouble(tokens[1]));
                             }
-                        }else{
-                            if(file.getName().contains("ACC")) incomingAccelerometerDataset.clear();
-                            else incomingGyroscopeDataset.clear();
-                            while ((inputLine = bufferedReader.readLine())!=null){
-                                //Split the data by ','
-                                String[] tokens = inputLine.split(",");
-                                //Read the data
-                                DataSet dataSet = new DataSet("0",0,0,0);
-                                dataSet.setTimeStamp(tokens[0]);
-                                if(tokens.length>=2 && tokens[1].length()>0){
-                                    dataSet.setxAxis(Double.parseDouble(tokens[1]));
-                                }
-                                else dataSet.setxAxis(0);
-                                if(tokens.length>=3 && tokens[2].length()>0){
-                                    dataSet.setyAxis(Double.parseDouble(tokens[2]));
-                                }
-                                else dataSet.setyAxis(0);
-                                if(tokens.length>=4 && tokens[3].length()>0){
-                                    dataSet.setzAxis(Double.parseDouble(tokens[3]));
-                                }
-                                else dataSet.setzAxis(0);
+                            else dataSet.setxAxis(0);
+                            if(tokens.length>=3 && tokens[2].length()>0){
+                                dataSet.setyAxis(Double.parseDouble(tokens[2]));
+                            }
+                            else dataSet.setyAxis(0);
+                            if(tokens.length>=4 && tokens[3].length()>0){
+                                dataSet.setzAxis(Double.parseDouble(tokens[3]));
+                            }
+                            else dataSet.setzAxis(0);
 
-                                String msg = dataSet.getTimeStamp()+","+dataSet.getxAxis()+","+dataSet.getyAxis()+","+dataSet.getzAxis();
-                                fileWriter.write(msg + "\n");
-                                fileWriter.flush();
-                                count++;
-                                int percent= (int) ((count/totalLineCount)*100);
+                            String msg = dataSet.getTimeStamp()+","+dataSet.getxAxis()+","+dataSet.getyAxis()+","+dataSet.getzAxis();
+                            fileWriter.write(msg + "\n");
+                            fileWriter.flush();
+                            count++;
+                            int percent= (int) ((count/totalLineCount)*100);
 
-                                if(file.getName().contains("ACC")){
-                                    inputDate = getDateFromName(file.getName());
-                                    incomingAccelerometerDataset.add(dataSet);
-                                    progAcc.setProgress(percent,true);
-                                }else if(file.getName().contains("GYRO")){
-                                    incomingGyroscopeDataset.add(dataSet);
-                                    progGyro.setProgress(percent,true);
-                                }
+                            if(file.getName().contains("ACC")){
+                                inputDate = getDateFromName(file.getName());
+                                incomingAccelerometerDataset.add(dataSet);
+                                progAcc.setProgress(percent,true);
+                            }else if(file.getName().contains("GYRO")){
+                                incomingGyroscopeDataset.add(dataSet);
+                                progGyro.setProgress(percent,true);
                             }
                         }
                         long loadEnd = System.currentTimeMillis();
@@ -548,9 +627,7 @@ public class MainActivity extends AppCompatActivity {
                             logger.write(mainActivity,"Loading time of the accelerometer file " + file.getName() + " is: " + time + " seconds");
                         else if(file.getName().contains("GYRO"))
                             logger.write(mainActivity,"Loading time of the gyroscope file " + file.getName() + " is: " + time + " seconds");
-                        else
-                            logger.write(mainActivity,"Loading time of the ground truth file " + file.getName() + " is: " + time + " seconds");
-                        FileUtils.forceDelete(file);
+                        //FileUtils.forceDelete(file);
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
@@ -562,7 +639,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void getPdfFromImage() {
         long loadStart = System.currentTimeMillis();
-        File inData = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/." + inputDate);
+        File inData = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/." + inputDate + "/images");
         int i=0,k=0,n=1,lenX=6,lenY=10,totalFile=inData.listFiles().length;
         Bitmap[] parts = new Bitmap[60];
         for(File file : inData.listFiles()){
@@ -585,11 +662,13 @@ public class MainActivity extends AppCompatActivity {
                 n++;
 
                 try {
-                    os = new FileOutputStream(String.valueOf(Environment.getExternalStoragePublicDirectory("FreeForm-Writing/.Working/" + name)));
+                    File working = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/." + inputDate + "/.Working");
+                    if(!working.exists())
+                        working.mkdir();
+                    os = new FileOutputStream(String.valueOf(Environment.getExternalStoragePublicDirectory("FreeForm-Writing/." + inputDate + "/.Working/" + name)));
                     result.compress(Bitmap.CompressFormat.PNG, 100, os);
                     os.flush();
                     os.close();
-                    os = null;
                     Log.e("MainActivity","Image Saved");
                 } catch(Exception e) {
                     Log.v("error saving","error saving");
@@ -599,13 +678,13 @@ public class MainActivity extends AppCompatActivity {
         }
 
         try {
-            FileUtils.forceDelete(inData);
+            //FileUtils.forceDelete(inData);
 
             Document document = new Document();
             PdfWriter.getInstance(document,new FileOutputStream(String.valueOf(Environment.getExternalStoragePublicDirectory("FreeForm-Writing/Output/" + inputDate + ".pdf"))));
             document.open();
 
-            File outputImg = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/.Working");
+            File outputImg = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/." + inputDate + "/.Working");
             for(File file : outputImg.listFiles()){
                 Image image = Image.getInstance(file.getAbsolutePath());
 

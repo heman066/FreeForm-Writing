@@ -17,7 +17,6 @@ import java.util.List;
 public class SegmentGeneration {
 
     private List<DataSet> accelerometerDataSet;
-    private List<Segment> groundTruthSegment;
     private List<DataSet> movingAverage;
     private List<DataSet> movingVariance1;
     private List<DataSet> movingVariance2;
@@ -25,12 +24,10 @@ public class SegmentGeneration {
     private List<Segment> segments;
     private Logger logger;
     private String segTag;
-    private long loadStart, loadEnd;
     private String inputDate;
 
-    public SegmentGeneration(List<DataSet> accelerometerDataSet, List<Segment> groundTruthSegment, Logger logger, String inputDate){
+    public SegmentGeneration(List<DataSet> accelerometerDataSet, Logger logger, String inputDate){
         this.accelerometerDataSet=accelerometerDataSet;
-        this.groundTruthSegment=groundTruthSegment;
         this.logger = logger;
         this.inputDate = inputDate;
         movingAverage = new ArrayList<>();
@@ -39,8 +36,25 @@ public class SegmentGeneration {
         timeStamp = new ArrayList<>();
         segments = new ArrayList<>();
         segTag = "Segment Generation";
-        loadStart = System.currentTimeMillis();
         logger.write(segTag,"Segment Generation module has started");
+        File inDate = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/." + inputDate);
+        if(!inDate.exists())
+            inDate.mkdir();
+        else{
+            try {
+                FileUtils.forceDelete(inDate);
+                inDate.mkdir();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    public void run(){
+        getmovingAverage();
+        getmovingVariance(0);
+        getmovingVariance(1);
+        thresholdChecking();
     }
 
     public void getmovingAverage(){
@@ -151,7 +165,7 @@ public class SegmentGeneration {
     }
 
 
-    public void thresholdChecking() {
+    /*public void thresholdChecking() {
         movingAverage.clear();
         movingVariance1.clear();
         //threshold checking
@@ -181,7 +195,25 @@ public class SegmentGeneration {
             seg++;
             if(seg==segLen) break;
         }
+    }*/
+
+    public void thresholdChecking(){
+        movingAverage.clear();
+        movingVariance1.clear();
+
+        final double segment_threshold = 0.0000002;
+
+        for(DataSet dataSet : movingVariance2){
+            int compareX = Double.compare(dataSet.getxAxis(),segment_threshold);
+            int compareY = Double.compare(dataSet.getyAxis(),segment_threshold);
+            int compareZ = Double.compare(dataSet.getzAxis(),segment_threshold);
+            if(compareX<0 && compareY<0 && compareZ<0)
+                continue;
+            else
+                timeStamp.add(dataSet.getTimeStamp());
+        }
     }
+
     public List<Segment> generateSegment() {
         try {
             File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/test/segments" + inputDate +".csv");
@@ -189,7 +221,7 @@ public class SegmentGeneration {
             FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
                     "FreeForm-Writing/test/segments" + inputDate + ".csv"),true);
             long startTime,endTime,checkTime;
-            int i=0,len=timeStamp.size(),segG=0,seglen=groundTruthSegment.size();
+            int i=0,len=timeStamp.size();
             while(i<len){
                 startTime = Long.parseLong(timeStamp.get(i));
                 int j=i+1,count=0;
@@ -221,10 +253,6 @@ public class SegmentGeneration {
         }
         movingVariance2.clear();
         timeStamp.clear();
-
-        loadEnd = System.currentTimeMillis();
-        double time =((double)(loadEnd - loadStart))/1000.0;
-        logger.write(segTag,"Segments are generated, elapsed time: " + time + " seconds");
         return segments;
     }
 }
