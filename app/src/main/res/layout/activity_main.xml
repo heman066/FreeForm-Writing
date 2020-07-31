@@ -19,30 +19,16 @@
             android:layout_marginRight="10dp"
             android:id="@+id/rel1">
 
-            <LinearLayout
-                android:layout_width="250dp"
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                >
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginLeft="10dp"
-                    android:layout_centerVertical="true"
-                    android:text="Select Accelerometer Data"
-                    android:textColor="#000"
-                    android:id="@+id/txtAcc"
-                    />
-                <ProgressBar
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginLeft="10dp"
-                    android:id="@+id/progAcc"
-                    android:max="100"
-                    />
-
-            </LinearLayout>
+                android:layout_marginLeft="10dp"
+                android:layout_centerVertical="true"
+                android:text="Select Accelerometer Data"
+                android:textSize="17sp"
+                android:textColor="#000"
+                android:id="@+id/txtAcc"
+                />
             <Button
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -61,29 +47,16 @@
             android:layout_marginRight="10dp"
             android:id="@+id/rel2"
             android:layout_below="@+id/rel1">
-            <LinearLayout
-                android:layout_width="250dp"
+            <TextView
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginLeft="10dp"
-                    android:layout_centerVertical="true"
-                    android:text="Select Gyroscope Data"
-                    android:textColor="#000"
-                    android:id="@+id/txtGyro"
-                    />
-                <ProgressBar
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginLeft="10dp"
-                    android:id="@+id/progGyro"
-                    android:max="100"
-                    />
-            </LinearLayout>
-
+                android:layout_marginLeft="10dp"
+                android:layout_centerVertical="true"
+                android:text="Select Gyroscope Data"
+                android:textColor="#000"
+                android:textSize="17sp"
+                android:id="@+id/txtGyro"
+                />
             <Button
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -162,6 +135,32 @@
             android:id="@+id/btn_reset"
             android:layout_alignParentEnd="true"/>
 
+    </RelativeLayout>
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_alignParentBottom="true"
+        android:layout_marginLeft="10dp"
+        android:layout_marginRight="10dp"
+        android:layout_marginBottom="10dp">
+        <ImageButton
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:src="@drawable/ic_wifi_tethering_black_24dp"
+            android:background="@drawable/btn_border"
+            android:id="@+id/btn_hotspot"
+            android:padding="3dp"
+            />
+        <Button
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Recieve Data"
+            android:padding="10dp"
+            android:id="@+id/btn_receive"
+            android:background="@drawable/btn_border"
+            android:layout_alignParentEnd="true"
+            android:layout_marginBottom="10dp"/>
     </RelativeLayout>
 
 </RelativeLayout>

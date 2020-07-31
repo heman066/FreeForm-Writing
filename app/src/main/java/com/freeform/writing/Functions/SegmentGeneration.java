@@ -224,7 +224,7 @@ public class SegmentGeneration {
             int i=0,len=timeStamp.size();
             while(i<len){
                 startTime = Long.parseLong(timeStamp.get(i));
-                int j=i+1,count=0;
+                int j=i,count=0;
                 checkTime=startTime;
                 endTime = Long.parseLong(timeStamp.get(j));
                 while((endTime-checkTime)<1000){

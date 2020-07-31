@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">FreeForm Writing</string>
+
+    <string name="gps_msg">GPS is disabled in your device. Otherwise you will not be able to collect data !!</string>
+    <string name="enable_gps">Turn on Location</string>
+    <string name="cancel">Cancel</string>
 </resources>

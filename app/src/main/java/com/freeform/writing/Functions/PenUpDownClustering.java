@@ -101,18 +101,20 @@ public class PenUpDownClustering{
                 DataWithIndex dy = new DataWithIndex(y,j);
                 DataWithIndex dz = new DataWithIndex(z,j);
                 long timeStamp = Long.parseLong(rawGyroscopeDataSet.get(j).getTimeStamp());
-                if(x > rawGyroscopeDataSet.get(j-1).getxAxis() && x > rawGyroscopeDataSet.get(j+1).getxAxis())
-                    maxX.put(timeStamp,dx);
-                else if(x < rawGyroscopeDataSet.get(j-1).getxAxis() && x < rawGyroscopeDataSet.get(j+1).getxAxis())
-                    minX.put(timeStamp,dx);
-                 if(y > rawGyroscopeDataSet.get(j-1).getyAxis() && y > rawGyroscopeDataSet.get(j+1).getyAxis())
-                    maxY.put(timeStamp,dy);
-                else if(y < rawGyroscopeDataSet.get(j-1).getyAxis() && y < rawGyroscopeDataSet.get(j+1).getyAxis())
-                    minY.put(timeStamp,dy);
-                if(z > rawGyroscopeDataSet.get(j-1).getzAxis() && z > rawGyroscopeDataSet.get(j+1).getzAxis())
-                    maxZ.put(timeStamp,dz);
-                else if(z < rawGyroscopeDataSet.get(j-1).getzAxis() && z < rawGyroscopeDataSet.get(j+1).getzAxis())
-                    minZ.put(timeStamp,dz);
+                if (j != 0 && j != size-1){
+                    if(x > rawGyroscopeDataSet.get(j-1).getxAxis() && x > rawGyroscopeDataSet.get(j+1).getxAxis())
+                        maxX.put(timeStamp,dx);
+                    else if(x < rawGyroscopeDataSet.get(j-1).getxAxis() && x < rawGyroscopeDataSet.get(j+1).getxAxis())
+                        minX.put(timeStamp,dx);
+                    if(y > rawGyroscopeDataSet.get(j-1).getyAxis() && y > rawGyroscopeDataSet.get(j+1).getyAxis())
+                        maxY.put(timeStamp,dy);
+                    else if(y < rawGyroscopeDataSet.get(j-1).getyAxis() && y < rawGyroscopeDataSet.get(j+1).getyAxis())
+                        minY.put(timeStamp,dy);
+                    if(z > rawGyroscopeDataSet.get(j-1).getzAxis() && z > rawGyroscopeDataSet.get(j+1).getzAxis())
+                        maxZ.put(timeStamp,dz);
+                    else if(z < rawGyroscopeDataSet.get(j-1).getzAxis() && z < rawGyroscopeDataSet.get(j+1).getzAxis())
+                        minZ.put(timeStamp,dz);
+                }
                 j++;
             }
             eInd = j-1;

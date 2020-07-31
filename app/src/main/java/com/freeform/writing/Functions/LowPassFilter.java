@@ -1,6 +1,7 @@
 package com.freeform.writing.Functions;
 
 import android.os.Environment;
+import android.util.Log;
 
 import com.chaquo.python.PyObject;
 import com.chaquo.python.Python;
@@ -116,6 +117,8 @@ public class LowPassFilter {
         for(SegmentWithPenUpDown segment : segmentDataSet){
             startTimes.add(segment.getStartTime());
             endTimes.add(segment.getEndTime());
+            //Log.e("LowPass",segment.getStartTime() + " " + saveDir);
+            //Log.e("LowPass",segment.getEndTime() + " " + saveDir);
         }
 
         Python python = Python.getInstance();
@@ -132,6 +135,7 @@ public class LowPassFilter {
         double[] z = pyo.callAttr("LPass",zAxis.toArray(),timeStamps.toArray(),
                 startTimes.toArray(),endTimes.toArray(),size,segLen).toJava(double[].class);*/
 
+        //.e("LowPass",segmentDataSet.size() + " " + saveDir);
         pyo.callAttr("LPass",startTimes.toArray(),endTimes.toArray(),filePath,saveDir);
 
         /*for(int i=0;i<dataSets.size();i++){

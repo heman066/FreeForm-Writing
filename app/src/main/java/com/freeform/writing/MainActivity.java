@@ -1,16 +1,26 @@
 package com.freeform.writing;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.work.OneTimeWorkRequest;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.location.LocationManager;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
+import android.net.wifi.WifiManager;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -18,9 +28,11 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Process;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
@@ -29,6 +41,7 @@ import android.widget.Toast;
 import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
 import com.freeform.writing.Functions.Calibration;
+import com.freeform.writing.Functions.Ip;
 import com.freeform.writing.Functions.LowPassFilter;
 import com.freeform.writing.Functions.PenUpDownClustering;
 import com.freeform.writing.Functions.SegmentGeneration;
@@ -39,6 +52,11 @@ import com.github.angads25.filepicker.controller.DialogSelectionListener;
 import com.github.angads25.filepicker.model.DialogConfigs;
 import com.github.angads25.filepicker.model.DialogProperties;
 import com.github.angads25.filepicker.view.FilePickerDialog;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.wearable.Node;
+import com.google.android.gms.wearable.NodeApi;
+import com.google.android.gms.wearable.Wearable;
 import com.itextpdf.text.Document;
 import com.itextpdf.text.DocumentException;
 import com.itextpdf.text.Image;
@@ -58,6 +76,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.nio.charset.Charset;
+import java.nio.charset.MalformedInputException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -77,14 +96,21 @@ public class MainActivity extends AppCompatActivity {
     private Button btnAccSelect, btnGyroSelect, btnGetAllData, btnReset;
     private Button btnGenarateSeg, btnLowPass , btnCalibrate, btnPdf;
     private TextView txtAcc, txtGyro;
-    private ProgressBar progAcc, progGyro;
+    private Button btnReceive;
+    private ImageButton btnHotspot;
 
     private Handler mHandler;
 
     public static final int MULTIPLE_PERMISSIONS = 10;
     private final String[] permissions = new String[]{
             Manifest.permission.WRITE_EXTERNAL_STORAGE,
-            Manifest.permission.READ_EXTERNAL_STORAGE};
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.CHANGE_WIFI_STATE,
+            Manifest.permission.ACCESS_WIFI_STATE,
+            Manifest.permission.ACCESS_NETWORK_STATE,
+            Manifest.permission.INTERNET};
 
     private SegmentGeneration segmentGeneration;
 
@@ -96,6 +122,17 @@ public class MainActivity extends AppCompatActivity {
     private Logger logger;
     private long appStartTime, appEndTime;
 
+    private WifiManager.LocalOnlyHotspotReservation mReservation;
+    private WifiManager wifiManager;
+
+    private static final String MESSAGE_PATH = "/message";
+
+    private GoogleApiClient googleApiClient;
+    private String nodeId;
+
+    private boolean isAccLoaded, isGyroLoaded;
+
+    private List<OneTimeWorkRequest> workerList;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -112,6 +149,7 @@ public class MainActivity extends AppCompatActivity {
 
         init();
         onClickListners();
+
     }
 
     private void init() {
@@ -128,15 +166,16 @@ public class MainActivity extends AppCompatActivity {
         btnAccSelect = findViewById(R.id.btnAccSelect);
         btnGyroSelect = findViewById(R.id.btnGyroSelect);
         btnGetAllData = findViewById(R.id.btn_getAllData);
+        btnReceive = findViewById(R.id.btn_receive);
+        btnHotspot = findViewById(R.id.btn_hotspot);
+
+        isAccLoaded = isGyroLoaded = false;
 
         rel = findViewById(R.id.rel);
         rel4 = findViewById(R.id.rel4);
 
         txtAcc = findViewById(R.id.txtAcc);
         txtGyro = findViewById(R.id.txtGyro);
-
-        progAcc = findViewById(R.id.progAcc);
-        progGyro = findViewById(R.id.progGyro);
 
         mHandler = new Handler(Looper.getMainLooper());
 
@@ -148,9 +187,44 @@ public class MainActivity extends AppCompatActivity {
         properties.offset = new File(DialogConfigs.DEFAULT_DIR);
         properties.extensions = null;
 
+        wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+
         if(!Python.isStarted()){
             Python.start(new AndroidPlatform(this));
         }
+
+
+        googleApiClient = new GoogleApiClient.Builder(this).addApi(Wearable.API)
+                .addConnectionCallbacks(mConnectionCallbacks).build();
+        googleApiClient.connect();
+
+        workerList = new ArrayList<>();
+    }
+
+    private final GoogleApiClient.ConnectionCallbacks mConnectionCallbacks
+            = new GoogleApiClient.ConnectionCallbacks() {
+
+        @Override
+        public void onConnected(@Nullable final Bundle bundle) {
+            findNodes();
+        }
+
+        @Override
+        public void onConnectionSuspended(final int i) {
+        }
+    };
+
+    private void findNodes() {
+        Wearable.NodeApi.getConnectedNodes(googleApiClient).setResultCallback(
+                new ResultCallback<NodeApi.GetConnectedNodesResult>() {
+                    @Override
+                    public void onResult(@NonNull final NodeApi.GetConnectedNodesResult getConnectedNodesResult) {
+                        List<Node> nodes = getConnectedNodesResult.getNodes();
+                        if (nodes != null && !nodes.isEmpty()) {
+                            nodeId = nodes.get(0).getId();
+                        }
+                    }
+                });
     }
 
     private void onClickListners() {
@@ -166,15 +240,14 @@ public class MainActivity extends AppCompatActivity {
                         logger.write(mainActivity,"Accelerometer File is selected");
                         final long loadStart = System.currentTimeMillis();
                         final File file = new File(files[0]);
-                        inputDate = getDateFromName(file.getName());
-                        txtAcc.setText(file.getName());
-                        rawAccPath = file.getAbsolutePath();
+
 
                         incomingAccelerometerDataset.clear();
                         new Thread(new Runnable() {
                             @RequiresApi(api = Build.VERSION_CODES.O)
                             @Override
                             public void run() {
+                                boolean isCorrupted = false;
                                 try {
                                     InputStream inputStream ;
                                     inputStream = new FileInputStream(file);
@@ -184,42 +257,73 @@ public class MainActivity extends AppCompatActivity {
                                     if(file1.exists()) FileUtils.forceDelete(file1);
                                     FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
                                             "FreeForm-Writing/.FFWList/" + file.getName()),true);
-                                    Path path = Paths.get(files[0]);
-                                    long totalLineCount= Files.lines(path).count(),count=0;
                                     while ((inputLine = bufferedReader.readLine())!=null){
                                         //Split the data by ','
                                         String[] tokens = inputLine.split(",");
+                                        if (!isLong(tokens[0])){
+                                            isCorrupted = true;
+                                            break;
+                                        }
                                         //Read the data
                                         DataSet dataSet = new DataSet("0",0,0,0);
                                         dataSet.setTimeStamp(tokens[0]);
-                                        if(tokens.length>=2 && tokens[1].length()>0){
+                                        if(tokens.length>=2 && tokens[1].length()>0 && isDouble(tokens[1])){
                                             dataSet.setxAxis(Double.parseDouble(tokens[1]));
                                         }
-                                        else dataSet.setxAxis(0);
-                                        if(tokens.length>=3 && tokens[2].length()>0){
+                                        else {
+                                            isCorrupted = true;
+                                            break;
+                                        }
+                                        if(tokens.length>=3 && tokens[2].length()>0 && isDouble(tokens[2])){
                                             dataSet.setyAxis(Double.parseDouble(tokens[2]));
                                         }
-                                        else dataSet.setyAxis(0);
-                                        if(tokens.length>=4 && tokens[3].length()>0){
+                                        else {
+                                            isCorrupted = true;
+                                            break;
+                                        }
+                                        if(tokens.length>=4 && tokens[3].length()>0 && isDouble(tokens[3])){
                                             dataSet.setzAxis(Double.parseDouble(tokens[3]));
                                         }
-                                        else dataSet.setzAxis(0);
+                                        else {
+                                            isCorrupted = true;
+                                            break;
+                                        }
                                         incomingAccelerometerDataset.add(dataSet);
 
                                         String msg = dataSet.getTimeStamp()+","+dataSet.getxAxis()+","+dataSet.getyAxis()+","+dataSet.getzAxis();
                                         fileWriter.write(msg + "\n");
                                         fileWriter.flush();
-                                        count++;
-                                        int percent= (int) ((count/totalLineCount)*100);
-                                        progAcc.setProgress(percent,true);
                                     }
+                                } catch (MalformedInputException e){
+                                    logger.write(mainActivity,file.getName() + " file is Corrupted");
+                                    e.printStackTrace();
+                                } catch (FileNotFoundException e) {
+                                    e.printStackTrace();
                                 } catch (IOException e) {
                                     e.printStackTrace();
                                 }
-                                long loadEnd = System.currentTimeMillis();
-                                double time =((double)(loadEnd - loadStart))/1000.0;
-                                logger.write(mainActivity,"Loading time of the accelerometer file " + file.getName() + " is: " + time + " seconds");
-                                btnAccSelect.setVisibility(View.GONE);
+                                if (!isCorrupted){
+                                    long loadEnd = System.currentTimeMillis();
+                                    double time =((double)(loadEnd - loadStart))/1000.0;
+                                    isAccLoaded = true;
+                                    logger.write(mainActivity,"Loading time of the accelerometer file " + file.getName() + " is: " + time + " seconds");
+                                    btnAccSelect.setVisibility(View.GONE);
+                                    inputDate = getDateFromName(file.getName());
+                                    rawAccPath = file.getAbsolutePath();
+                                    mHandler.post(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            txtAcc.setText(file.getName());
+                                        }
+                                    });
+                                } else {
+                                    mHandler.post(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            Toast.makeText(MainActivity.this, file.getName() + " file is Corrupted",Toast.LENGTH_LONG).show();
+                                        }
+                                    });
+                                }
                             }
                         }).start();
                     }
@@ -241,14 +345,13 @@ public class MainActivity extends AppCompatActivity {
                         logger.write(mainActivity,"Gyroscope File is selected");
                         final long loadStart = System.currentTimeMillis();
                         final File file = new File(files[0]);
-                        txtGyro.setText(file.getName());
-                        rawGyroPath = file.getAbsolutePath();
 
                         incomingGyroscopeDataset.clear();
                         new Thread(new Runnable() {
                             @RequiresApi(api = Build.VERSION_CODES.O)
                             @Override
                             public void run() {
+                                boolean isCorrupted = false;
                                 try {
                                     InputStream inputStream ;
                                     inputStream = new FileInputStream(file);
@@ -258,43 +361,73 @@ public class MainActivity extends AppCompatActivity {
                                     if(file1.exists()) FileUtils.forceDelete(file1);
                                     FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
                                             "FreeForm-Writing/.FFWList/" + file.getName()),true);
-                                    Path path = Paths.get(files[0]);
-                                    long totalLineCount= Files.lines(path).count(),count=0;
                                     while ((inputLine = bufferedReader.readLine())!=null){
                                         //Split the data by ','
                                         String[] tokens = inputLine.split(",");
+                                        if (!isLong(tokens[0])){
+                                            isCorrupted = true;
+                                            break;
+                                        }
                                         //Read the data
                                         DataSet dataSet = new DataSet("0",0,0,0);
                                         dataSet.setTimeStamp(tokens[0]);
-                                        if(tokens.length>=2 && tokens[1].length()>0){
+                                        if(tokens.length>=2 && tokens[1].length()>0 && isDouble(tokens[1])){
                                             dataSet.setxAxis(Double.parseDouble(tokens[1]));
                                         }
-                                        else dataSet.setxAxis(0);
-                                        if(tokens.length>=3 && tokens[2].length()>0){
+                                        else {
+                                            isCorrupted = true;
+                                            break;
+                                        }
+                                        if(tokens.length>=3 && tokens[2].length()>0 && isDouble(tokens[2])){
                                             dataSet.setyAxis(Double.parseDouble(tokens[2]));
                                         }
-                                        else dataSet.setyAxis(0);
-                                        if(tokens.length>=4 && tokens[3].length()>0){
+                                        else {
+                                            isCorrupted = true;
+                                            break;
+                                        }
+                                        if(tokens.length>=4 && tokens[3].length()>0 && isDouble(tokens[3])){
                                             dataSet.setzAxis(Double.parseDouble(tokens[3]));
                                         }
-                                        else dataSet.setzAxis(0);
+                                        else {
+                                            isCorrupted = true;
+                                            break;
+                                        }
                                         incomingGyroscopeDataset.add(dataSet);
 
                                         String msg = dataSet.getTimeStamp()+","+dataSet.getxAxis()+","+dataSet.getyAxis()+","+dataSet.getzAxis();
                                         fileWriter.write(msg + "\n");
                                         fileWriter.flush();
-
-                                        count++;
-                                        int percent= (int) ((count/totalLineCount)*100);
-                                        progGyro.setProgress(percent,true);
                                     }
+                                } catch (MalformedInputException e){
+                                    //Toast.makeText(MainActivity.this, file.getName() + " file is Corrupted",Toast.LENGTH_LONG).show();
+                                    logger.write(mainActivity,file.getName() + " file is Corrupted");
+                                    e.printStackTrace();
+                                } catch (FileNotFoundException e) {
+                                    e.printStackTrace();
                                 } catch (IOException e) {
                                     e.printStackTrace();
                                 }
-                                long loadEnd = System.currentTimeMillis();
-                                double time =((double)(loadEnd - loadStart))/1000.0;
-                                logger.write(mainActivity,"Loading time of the gyroscope file " + file.getName() + " is: " + time + " seconds");
-                                btnGyroSelect.setVisibility(View.GONE);
+                                if (!isCorrupted){
+                                    long loadEnd = System.currentTimeMillis();
+                                    double time =((double)(loadEnd - loadStart))/1000.0;
+                                    isGyroLoaded = true;
+                                    logger.write(mainActivity,"Loading time of the gyroscope file " + file.getName() + " is: " + time + " seconds");
+                                    btnGyroSelect.setVisibility(View.GONE);
+                                    rawGyroPath = file.getAbsolutePath();
+                                    mHandler.post(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            txtGyro.setText(file.getName());
+                                        }
+                                    });
+                                } else{
+                                    mHandler.post(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            Toast.makeText(MainActivity.this, file.getName() + " file is Corrupted",Toast.LENGTH_LONG).show();
+                                        }
+                                    });
+                                }
                             }
                         }).start();
                     }
@@ -320,7 +453,7 @@ public class MainActivity extends AppCompatActivity {
                 if (!segCheck[0]){
                     if(incomingAccelerometerDataset.size() == 0 || incomingGyroscopeDataset.size() == 0)
                         Toast.makeText(MainActivity.this,"Please Select all Files",Toast.LENGTH_LONG).show();
-                    else if( progAcc.getProgress() != 100 || progGyro.getProgress() != 100)
+                    else if( isAccLoaded || isGyroLoaded)
                         Toast.makeText(MainActivity.this,"Please Wait for Files to be Loaded",Toast.LENGTH_LONG).show();
                     else{
                         final long loadStart = System.currentTimeMillis();
@@ -329,9 +462,15 @@ public class MainActivity extends AppCompatActivity {
                             public void run() {
                                 segCheck[0] = true;
                                 Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO);
+                                try {
+                                    equalize();
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
                                 segmentGeneration = new SegmentGeneration(incomingAccelerometerDataset,logger, inputDate);
                                 segmentGeneration.run();
                                 final List<Segment> buffSegment = segmentGeneration.generateSegment();
+                                Log.e("Normal Seg",buffSegment.size() + "");
                                 logger.write(mainActivity,"PenUpDownClustering module started");
                                 Thread thread = new Thread(new Runnable() {
                                     @Override
@@ -354,6 +493,7 @@ public class MainActivity extends AppCompatActivity {
                                         Toast.makeText(MainActivity.this,"Segment Generation Successful",Toast.LENGTH_LONG).show();
                                     }
                                 });
+                                Log.e("Seg",segments.size() + "");
                                 segGenerated[0] = true;
                                 long loadEnd = System.currentTimeMillis();
                                 double time =((double)(loadEnd - loadStart))/1000.0;
@@ -492,12 +632,12 @@ public class MainActivity extends AppCompatActivity {
                             public void run() {
                                 pdfCheck[0] = true;
                                 getPdfFromImage();
-                                /*File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/." + inputDate);
+                                File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/." + inputDate);
                                 try {
                                     FileUtils.forceDelete(file);
                                 } catch (IOException e) {
                                     e.printStackTrace();
-                                }*/
+                                }
                                 mHandler.post(new Runnable() {
                                     @Override
                                     public void run() {
@@ -531,11 +671,117 @@ public class MainActivity extends AppCompatActivity {
                 txtAcc.setText("Select Accelerometer Data");
                 txtGyro.setText("Select Gyroscope Data");
 
-                progAcc.setProgress(0);
-                progGyro.setProgress(0);
+                isAccLoaded = isGyroLoaded = false;
                 logger.write(mainActivity,"Reset, you can add new files");
             }
         });
+
+        btnHotspot.setOnClickListener(new View.OnClickListener() {
+            @RequiresApi(api = Build.VERSION_CODES.O)
+            @Override
+            public void onClick(View v) {
+                final LocationManager manager = (LocationManager) getSystemService( Context.LOCATION_SERVICE );
+                ConnectivityManager cm =
+                        (ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);
+                NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+                boolean isConnected = activeNetwork != null &&
+                        activeNetwork.isConnectedOrConnecting();
+                //if (!manager.isProviderEnabled( LocationManager.GPS_PROVIDER ) && !isConnected)
+                //   enableGPS();
+
+                turnOnHotspot();
+            }
+        });
+
+        btnReceive.setOnClickListener(new View.OnClickListener() {
+            @RequiresApi(api = Build.VERSION_CODES.O)
+            @Override
+            public void onClick(View v) {
+                if (mReservation != null){
+                    new Thread(new ServerTask()).start();
+                } else
+                    Toast.makeText(MainActivity.this,"Turn on the WiFi-HotSpot",Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.O)
+    private void turnOnHotspot() {
+        if (mReservation == null){
+
+            wifiManager.startLocalOnlyHotspot(new WifiManager.LocalOnlyHotspotCallback() {
+
+                @Override
+                public void onStarted(WifiManager.LocalOnlyHotspotReservation reservation) {
+                    super.onStarted(reservation);
+                    mReservation = reservation;
+                    Toast.makeText(MainActivity.this,"WiFi-HotSpot Enabled",Toast.LENGTH_SHORT).show();
+                    btnHotspot.setImageResource(R.drawable.ic_portable_wifi_off_black_24dp);
+
+                    String SSID = mReservation.getWifiConfiguration().SSID;
+                    String password = mReservation.getWifiConfiguration().preSharedKey;
+                    String ip = Ip.getDottedDecimalIP(Ip.ipadd());
+                    Log.e("Main",SSID);
+                    Log.e("Main",password);
+                    Log.e("Main",ip);
+
+                    final String info = SSID + "::" + password + "::" + ip;
+
+                    if (nodeId != null) {
+                        new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                Wearable.MessageApi.sendMessage(googleApiClient, nodeId, MESSAGE_PATH, info.getBytes(Charset.forName("UTF-8")));
+                            }
+                        }).start();
+                    }
+                    /*Asset asset = Asset.createFromBytes(info.getBytes(Charset.forName("UTF-8")));
+                    PutDataRequest putDataRequest = PutDataRequest.create("/connection");
+                    putDataRequest.putAsset("info",asset);
+                    Task<DataItem> putTask = Wearable.getDataClient(getApplicationContext()).putDataItem(putDataRequest);*/
+                }
+
+                @Override
+                public void onStopped() {
+                    super.onStopped();
+                }
+
+                @Override
+                public void onFailed(int reason) {
+                    super.onFailed(reason);
+                }
+            }, new Handler());
+        } else{
+            Toast.makeText(MainActivity.this,"WiFi-HotSpot Disabled",Toast.LENGTH_SHORT).show();
+            mReservation.close();
+            mReservation = null;
+            btnHotspot.setImageResource(R.drawable.ic_wifi_tethering_black_24dp);
+        }
+    }
+
+    public void enableGPS() {
+        AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(this);
+        alertDialogBuilder
+                .setMessage(R.string.gps_msg)
+                .setCancelable(false)
+                .setTitle("Turn on Location")
+                .setPositiveButton(R.string.enable_gps,
+                        new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog,
+                                                int id) {
+                                Intent callGPSSettingIntent = new Intent(
+                                        Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+                                startActivityForResult(callGPSSettingIntent, 5);
+                            }
+                        });
+        alertDialogBuilder.setNegativeButton(R.string.cancel,
+                new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int id) {
+                        dialog.cancel();
+                    }
+                });
+        AlertDialog alert = alertDialogBuilder.create();
+        alert.show();
     }
 
     private void getIncomingDataSet() {
@@ -570,18 +816,7 @@ public class MainActivity extends AppCompatActivity {
                         FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
                                 "FreeForm-Writing/.FFWList/" + file.getName()),true);
 
-                        Path path = Paths.get(file.getAbsolutePath());
-                        long totalLineCount= Files.lines(path).count(),count=0;
-
-                        mHandler.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                if(file.getName().contains("ACC"))
-                                    txtAcc.setText(file.getName());
-                                else if(file.getName().contains("GYRO"))
-                                    txtGyro.setText(file.getName());
-                            }
-                        });
+                        boolean isCorrupted = false;
 
                         if(file.getName().contains("ACC"))
                             incomingAccelerometerDataset.clear();
@@ -591,43 +826,79 @@ public class MainActivity extends AppCompatActivity {
                             //Split the data by ','
                             String[] tokens = inputLine.split(",");
                             //Read the data
+                            if (!isLong(tokens[0])){
+                                isCorrupted = true;
+                                break;
+                            }
                             DataSet dataSet = new DataSet("0",0,0,0);
                             dataSet.setTimeStamp(tokens[0]);
-                            if(tokens.length>=2 && tokens[1].length()>0){
+                            if(tokens.length>=2 && tokens[1].length()>0 && isDouble(tokens[1])){
                                 dataSet.setxAxis(Double.parseDouble(tokens[1]));
                             }
-                            else dataSet.setxAxis(0);
-                            if(tokens.length>=3 && tokens[2].length()>0){
+                            else {
+                                isCorrupted = true;
+                                break;
+                            }
+                            if(tokens.length>=3 && tokens[2].length()>0 && isDouble(tokens[2])){
                                 dataSet.setyAxis(Double.parseDouble(tokens[2]));
                             }
-                            else dataSet.setyAxis(0);
-                            if(tokens.length>=4 && tokens[3].length()>0){
+                            else {
+                                isCorrupted = true;
+                                break;
+                            }
+                            if(tokens.length>=4 && tokens[3].length()>0 && isDouble(tokens[3])){
                                 dataSet.setzAxis(Double.parseDouble(tokens[3]));
                             }
-                            else dataSet.setzAxis(0);
+                            else {
+                                isCorrupted = true;
+                                break;
+                            }
 
                             String msg = dataSet.getTimeStamp()+","+dataSet.getxAxis()+","+dataSet.getyAxis()+","+dataSet.getzAxis();
                             fileWriter.write(msg + "\n");
                             fileWriter.flush();
-                            count++;
-                            int percent= (int) ((count/totalLineCount)*100);
-
                             if(file.getName().contains("ACC")){
                                 inputDate = getDateFromName(file.getName());
                                 incomingAccelerometerDataset.add(dataSet);
-                                progAcc.setProgress(percent,true);
                             }else if(file.getName().contains("GYRO")){
                                 incomingGyroscopeDataset.add(dataSet);
-                                progGyro.setProgress(percent,true);
                             }
                         }
-                        long loadEnd = System.currentTimeMillis();
-                        double time =((double)(loadEnd - loadStart))/1000.0;
-                        if(file.getName().contains("ACC"))
-                            logger.write(mainActivity,"Loading time of the accelerometer file " + file.getName() + " is: " + time + " seconds");
-                        else if(file.getName().contains("GYRO"))
-                            logger.write(mainActivity,"Loading time of the gyroscope file " + file.getName() + " is: " + time + " seconds");
+                        final boolean check = isCorrupted;
+                        mHandler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (check){
+                                    Toast.makeText(MainActivity.this, file.getName() + " file is Corrupted",Toast.LENGTH_SHORT).show();
+                                    logger.write(mainActivity,file.getName() + " file is Corrupted");
+                                }
+                                else {
+                                    if(file.getName().contains("ACC"))
+                                        txtAcc.setText(file.getName());
+                                    else if(file.getName().contains("GYRO"))
+                                        txtGyro.setText(file.getName());
+                                }
+                            }
+                        });
+                        if (!check){
+                            long loadEnd = System.currentTimeMillis();
+                            double time =((double)(loadEnd - loadStart))/1000.0;
+                            if(file.getName().contains("ACC")){
+                                logger.write(mainActivity,"Loading time of the accelerometer file " + file.getName() + " is: " + time + " seconds");
+                                isAccLoaded = true;
+                            }
+                            else if(file.getName().contains("GYRO")){
+                                logger.write(mainActivity,"Loading time of the gyroscope file " + file.getName() + " is: " + time + " seconds");
+                                isGyroLoaded = true;
+                            }
+                        }
                         //FileUtils.forceDelete(file);
+                    } catch (MalformedInputException e){
+                        Toast.makeText(MainActivity.this, file.getName() + " file is Corrupted",Toast.LENGTH_SHORT).show();
+                        logger.write(mainActivity,file.getName() + " file is Corrupted");
+                        e.printStackTrace();
+                    } catch (FileNotFoundException e) {
+                        e.printStackTrace();
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
@@ -719,6 +990,72 @@ public class MainActivity extends AppCompatActivity {
         return s[s.length-1];
     }
 
+    private void equalize() throws IOException {
+        int i = 0,j = 0;
+        long a = Long.parseLong(incomingAccelerometerDataset.get(0).getTimeStamp());
+        long g = Long.parseLong(incomingGyroscopeDataset.get(0).getTimeStamp());
+        int diff = (int) Math.abs(a - g);
+        List<DataSet> garbage = new ArrayList<>();
+        if (a < g){
+            //FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory("FreeForm-Writing/garbAcc.csv"),true);
+            a = Long.parseLong(incomingAccelerometerDataset.get(1).getTimeStamp());
+            int check = (int) Math.abs(a - g);
+            while(diff > 20){
+                garbage.add(incomingAccelerometerDataset.get(i));
+                i++;
+                diff = check;
+                a = Long.parseLong(incomingAccelerometerDataset.get(i+1).getTimeStamp());
+                check = (int) Math.abs(a - g);
+            }
+            if (diff > check)
+                garbage.add(incomingAccelerometerDataset.get(i));
+            for (DataSet dataSet : garbage){
+                incomingAccelerometerDataset.remove(dataSet);
+                //String msg = dataSet.getTimeStamp() + "," + dataSet.getxAxis() + "," + dataSet.getyAxis() + "," + dataSet.getzAxis();
+                //fileWriter.write(msg + "\n");
+                //fileWriter.flush();
+            }
+        } else if (a > g){
+            //FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory("FreeForm-Writing/garbGyro.csv"),true);
+            g = Long.parseLong(incomingGyroscopeDataset.get(1).getTimeStamp());
+            int check = (int) Math.abs(a - g);
+            while(diff > 20){
+                garbage.add(incomingGyroscopeDataset.get(j));
+                j++;
+                diff = check;
+                g = Long.parseLong(incomingGyroscopeDataset.get(j+1).getTimeStamp());
+                check = (int) Math.abs(a - g);
+            }
+            if (diff > check)
+                garbage.add(incomingGyroscopeDataset.get(j));
+            for (DataSet dataSet : garbage) {
+                incomingGyroscopeDataset.remove(dataSet);
+                //String msg = dataSet.getTimeStamp() + "," + dataSet.getxAxis() + "," + dataSet.getyAxis() + "," + dataSet.getzAxis();
+                //fileWriter.write(msg + "\n");
+                //fileWriter.flush();
+            }
+        }
+
+    }
+
+    private boolean isLong(String input){
+        try {
+            Long.parseLong(input);
+            return true;
+        } catch (Exception e){
+            return false;
+        }
+    }
+
+    private boolean isDouble(String input){
+        try {
+            Double.parseDouble(input);
+            return true;
+        } catch (Exception e){
+            return false;
+        }
+    }
+
     private double getBatteryPercentage(){
         BatteryManager bm = (BatteryManager)getSystemService(BATTERY_SERVICE);
         double batLevel = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
@@ -741,6 +1078,9 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         appEndTime = System.currentTimeMillis();
         double time = ((double)(appEndTime - appStartTime))/1000.0;
+        if (mReservation != null)
+            mReservation.close();
+        googleApiClient.disconnect();
         logger.write(mainActivity,"App is closing");
         logger.write(mainActivity,"Total time elapsed in the app: " + time + "seconds");
         logger.write(mainActivity,"Current battery percentage: " + getBatteryPercentage());
