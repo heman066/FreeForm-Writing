@@ -32,6 +32,6 @@ public class Logger {
         catch (IOException e){
             e.printStackTrace();
         }
-        Log.d(Tag,logMessage);
+        //Log.d(Tag,logMessage);
     }
 }

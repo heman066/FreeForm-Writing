@@ -5,6 +5,7 @@ import android.util.Log;
 
 import com.chaquo.python.PyObject;
 import com.chaquo.python.Python;
+import com.freeform.writing.Logger;
 import com.freeform.writing.Model.DataSet;
 import com.freeform.writing.Model.Segment;
 import com.freeform.writing.Model.SegmentWithPenUpDown;
@@ -40,11 +41,13 @@ public class PenUpDownClustering{
     private File working;
     private List<Segment> timeSegmentList;
     private FileWriter fileW;
+    private Logger logger;
 
-    public PenUpDownClustering(List<DataSet> rawGyroscopeDataSet, List<Segment> segments, String inputDate) {
+    public PenUpDownClustering(List<DataSet> rawGyroscopeDataSet, List<Segment> segments, String inputDate, Logger logger) {
         this.rawGyroscopeDataSet = rawGyroscopeDataSet;
         this.segments = segments;
         this.inputDate = inputDate;
+        this.logger = logger;
         working = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/." + inputDate + "/.Working");
         if (!working.exists())
             working.mkdir();
@@ -83,6 +86,7 @@ public class PenUpDownClustering{
     }
 
     private void getMinMax(){
+        //logger.write("","check 1 getMinMax " + updatedSegments.size());
         int i = 0, size = rawGyroscopeDataSet.size();
         int seg = 0, segLen = segments.size();
         long startTime, endTime;
@@ -90,9 +94,15 @@ public class PenUpDownClustering{
             int j = i, sInd, eInd;
             startTime = segments.get(seg).getStartTime();
             endTime = segments.get(seg).getEndTime();
-            while(startTime > Long.parseLong(rawGyroscopeDataSet.get(j).getTimeStamp()))
+            while(startTime > Long.parseLong(rawGyroscopeDataSet.get(j).getTimeStamp())){
                 j++;
+                if (j == size)
+                    break;
+            }
+            if (j == size)
+                break;
             sInd = j;
+            boolean isSuccessful = false;
             while (endTime >= Long.parseLong(rawGyroscopeDataSet.get(j).getTimeStamp())){
                 double x = rawGyroscopeDataSet.get(j).getxAxis();
                 double y = rawGyroscopeDataSet.get(j).getyAxis();
@@ -116,7 +126,12 @@ public class PenUpDownClustering{
                         minZ.put(timeStamp,dz);
                 }
                 j++;
+                if (j == size){
+                    break;
+                }
             }
+            if (j == size)
+                break;
             eInd = j-1;
             calculateAxis_CrossAxis_MinMax_Difference(sInd,eInd);
             List<Double> clusteredOutput = applyKmeansClustering();

@@ -25,6 +25,7 @@ public class SegmentGeneration {
     private Logger logger;
     private String segTag;
     private String inputDate;
+    private long start, end;
 
     public SegmentGeneration(List<DataSet> accelerometerDataSet, Logger logger, String inputDate){
         this.accelerometerDataSet=accelerometerDataSet;
@@ -48,6 +49,7 @@ public class SegmentGeneration {
                 e.printStackTrace();
             }
         }
+        start = System.currentTimeMillis();
     }
 
     public void run(){
@@ -215,44 +217,43 @@ public class SegmentGeneration {
     }
 
     public List<Segment> generateSegment() {
-        try {
-            File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/test/segments" + inputDate +".csv");
-            if(file.exists()) FileUtils.forceDelete(file);
-            FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
-                    "FreeForm-Writing/test/segments" + inputDate + ".csv"),true);
-            long startTime,endTime,checkTime;
-            int i=0,len=timeStamp.size();
-            while(i<len){
-                startTime = Long.parseLong(timeStamp.get(i));
-                int j=i,count=0;
-                checkTime=startTime;
-                endTime = Long.parseLong(timeStamp.get(j));
-                while((endTime-checkTime)<1000){
-                    j++;
-                    count++;
-                    checkTime=endTime;
-                    if(j==len)break;
-                    endTime=Long.parseLong(timeStamp.get(j));
-                }
-                endTime=checkTime;
-                if(endTime-startTime>=1000){
-                    //if(groundTruthSegment.get(segG).getEndTime()>endTime && groundTruthSegment.get(segG).getStartTime()<startTime){
-                        Segment segment = new Segment(startTime,endTime);
-                        segments.add(segment);
-                        String seg= segment.getStartTime() + "," + segment.getEndTime();
-                        fileWriter.write(seg + "\n");
-                        fileWriter.flush();
-                        //segG++;
-                        //if(segG==seglen) break;
-                    //}
-                }
-                i=j;
+        //File file = Environment.getExternalStoragePublicDirectory("FreeForm-Writing/test/segments" + inputDate +".csv");
+        //if(file.exists()) FileUtils.forceDelete(file);
+        //FileWriter fileWriter = new FileWriter(Environment.getExternalStoragePublicDirectory(
+        //        "FreeForm-Writing/test/segments" + inputDate + ".csv"),true);
+        long startTime,endTime,checkTime;
+        int i=0,len=timeStamp.size();
+        while(i<len){
+            startTime = Long.parseLong(timeStamp.get(i));
+            int j=i,count=0;
+            checkTime=startTime;
+            endTime = Long.parseLong(timeStamp.get(j));
+            while((endTime-checkTime)<1000){
+                j++;
+                count++;
+                checkTime=endTime;
+                if(j==len)break;
+                endTime=Long.parseLong(timeStamp.get(j));
             }
-        } catch (IOException e) {
-            e.printStackTrace();
+            endTime=checkTime;
+            if(endTime-startTime>=1000){
+                //if(groundTruthSegment.get(segG).getEndTime()>endTime && groundTruthSegment.get(segG).getStartTime()<startTime){
+                    Segment segment = new Segment(startTime,endTime);
+                    segments.add(segment);
+                    String seg= segment.getStartTime() + "," + segment.getEndTime();
+                    //fileWriter.write(seg + "\n");
+                    //fileWriter.flush();
+                    //segG++;
+                    //if(segG==seglen) break;
+                //}
+            }
+            i=j;
         }
         movingVariance2.clear();
         timeStamp.clear();
+        end = System.currentTimeMillis();
+        double time = ((double)(end - start))/1000.0;
+        logger.write("","First level Segment Generation Successful, Time elapsed:- " + time + "seconds");
         return segments;
     }
 }

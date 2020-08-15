@@ -168,6 +168,6 @@ public class Calibration {
         }
         loadEnd = System.currentTimeMillis();
         double time =((double)(loadEnd - loadStart))/1000.0;
-        logger.write(calTAG,"Calibration completed and output image generated, elapsed time: " + time + " seconds");
+        //logger.write(calTAG,"Calibration completed and output image generated, elapsed time: " + time + " seconds");
     }
 }

@@ -66,6 +66,7 @@
                 android:background="@drawable/btn_border"
                 android:id="@+id/btnGyroSelect"/>
         </RelativeLayout>
+
         <Button
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -73,67 +74,66 @@
             android:layout_marginTop="20dp"
             android:layout_marginLeft="10dp"
             android:layout_marginRight="10dp"
-            android:id="@+id/btn_getAllData"
-            android:text="Get All Data"
+            android:text="Process"
+            android:id="@+id/process"
             android:background="@drawable/btn_border"/>
-        <Button
+
+        <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:id="@+id/btn_segments"
+            android:orientation="horizontal"
             android:layout_marginTop="20dp"
             android:layout_marginLeft="10dp"
             android:layout_marginRight="10dp"
-            android:layout_below="@+id/btn_getAllData"
-            android:text="Generate Segments"
-            android:background="@drawable/btn_border"/>
-        <Button
+            android:id="@+id/rel4"
+            android:layout_below="@+id/process">
+            <Button
+                android:layout_width="100dp"
+                android:layout_height="wrap_content"
+                android:text="Reset"
+                android:layout_marginRight="10dp"
+                android:background="@drawable/btn_border"
+                android:id="@+id/btn_reset"
+                android:layout_alignParentEnd="true"/>
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:id="@+id/btn_lowPass"
+            android:layout_below="@+id/btn_reset"
             android:layout_marginTop="20dp"
             android:layout_marginLeft="10dp"
             android:layout_marginRight="10dp"
-            android:layout_below="@+id/btn_segments"
-            android:text="Apply LowPass Filter"
-            android:background="@drawable/btn_border"/>
+            android:orientation="horizontal"
+            android:gravity="center_horizontal|center_vertical"
+            android:id="@+id/lin1">
+            <View
+                android:layout_width="100dp"
+                android:layout_height="2dp"
+                android:background="@color/colorDivider"/>
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="OR"
+                android:textColor="#000"
+                android:textStyle="bold"
+                android:layout_marginLeft="20dp"
+                android:layout_marginRight="20dp"/>
+            <View
+                android:layout_width="100dp"
+                android:layout_height="2dp"
+                android:background="@color/colorDivider"/>
+        </LinearLayout>
+
         <Button
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_below="@+id/btn_lowPass"
-            android:layout_marginTop="20dp"
-            android:layout_marginLeft="10dp"
-            android:layout_marginRight="10dp"
-            android:id="@+id/btn_calibrate"
-            android:text="Calibrate"
-            android:background="@drawable/btn_border"/>
-        <Button
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:id="@+id/btn_pdf"
-            android:layout_below="@+id/btn_calibrate"
-            android:layout_marginTop="20dp"
-            android:layout_marginLeft="10dp"
-            android:layout_marginRight="10dp"
-            android:text="Get pdf"
-            android:background="@drawable/btn_border"/>
-    </RelativeLayout>
-    <RelativeLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="20dp"
-        android:layout_marginLeft="10dp"
-        android:layout_marginRight="10dp"
-        android:id="@+id/rel4"
-        android:layout_below="@+id/rel">
-        <Button
-            android:layout_width="100dp"
-            android:layout_height="wrap_content"
-            android:text="Reset"
-            android:layout_marginRight="10dp"
+            android:id="@+id/process_all_data"
+            android:text="Process All Data"
             android:background="@drawable/btn_border"
-            android:id="@+id/btn_reset"
-            android:layout_alignParentEnd="true"/>
+            android:layout_below="@+id/lin1"
+            android:layout_marginTop="20dp"
+            android:layout_marginLeft="10dp"
+            android:layout_marginRight="10dp"/>
 
     </RelativeLayout>
     <RelativeLayout
@@ -163,4 +163,5 @@
             android:layout_marginBottom="10dp"/>
     </RelativeLayout>
 
+    </RelativeLayout>
 </RelativeLayout>

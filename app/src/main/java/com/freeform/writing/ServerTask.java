@@ -3,6 +3,7 @@ package com.freeform.writing;
 import android.content.Context;
 import android.os.AsyncTask;
 import android.os.Environment;
+import android.os.Handler;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -15,6 +16,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -23,13 +25,22 @@ import java.net.Socket;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-public class ServerTask implements Runnable{
+public class ServerTask extends AsyncTask<Void, Void, Void>{
     private ServerSocket serverSocket;
     private Socket socket;
-    private String dir = String.valueOf(Environment.getExternalStoragePublicDirectory("FreeForm-Writing/test"));
+    private String dir = String.valueOf(Environment.getExternalStoragePublicDirectory("FreeForm-Writing/Input Data"));
+    private Context context;
+    private BasicFunctionHandler handler;
+    private ServerCommunication listener;
+
+    public ServerTask(Context context, BasicFunctionHandler handler) {
+        this.context = context;
+        this.handler = handler;
+        listener = (ServerCommunication)context;
+    }
 
     @Override
-    public void run() {
+    protected Void doInBackground(Void... voids) {
         try {
             Log.e("Server","Socket started");
             serverSocket = new ServerSocket(8988);
@@ -51,10 +62,9 @@ public class ServerTask implements Runnable{
                 BufferedOutputStream bos = new BufferedOutputStream(fos);
 
                 for(int j = 0; j < fileLength; j++) bos.write(bis.read());
-
+                bos.flush();
                 bos.close();
             }
-
             dis.close();
         } catch (IOException e) {
             e.printStackTrace();
@@ -68,5 +78,17 @@ public class ServerTask implements Runnable{
                 }
             }
         }
+        return null;
+    }
+
+    @Override
+    protected void onPostExecute(Void aVoid) {
+        new Handler(context.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                handler.showAlertDialog("Success!!","Files Received");
+            }
+        });
+        listener.getMessage();
     }
 }
